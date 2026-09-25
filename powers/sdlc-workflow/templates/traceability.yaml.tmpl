@@ -1,0 +1,52 @@
+﻿# traceability.yaml Template
+# AUTHORITATIVE cross-reference mapping
+
+schema_version: "1"
+
+requirements: []
+# Example entry:
+# - id: REQ-001
+#   status: FROZEN
+#   acceptance_criteria:
+#     - id: AC-001-01
+#       status: VERIFIED
+#       design_refs: [DESIGN-001]
+#       task_refs: [TASK-001]
+#       test_refs: ["test_user_login"]
+#       evidence_ref: evidence/TASK-001/verify.md
+
+designs: []
+# Example entry:
+# - id: DESIGN-001
+#   status: APPROVED
+#   requirement_refs: [REQ-001]
+#   adr_refs: [ADR-001]
+#   task_refs: [TASK-001, TASK-002]
+
+tasks: []
+# Example entry:
+# - id: TASK-001
+#   status: DONE
+#   requirement_ref: REQ-001
+#   ac_refs: [AC-001-01]
+#   design_ref: DESIGN-001
+#   test_refs: ["test_user_login"]
+#   evidence_path: evidence/TASK-001/
+#   tdd_status: COMPLETE
+
+approvals: []
+# Example entry:
+# - id: APPROVAL-001
+#   gate: REQ_REVIEW
+#   scope: [REQ-001, REQ-002]
+#   decision: APPROVED
+#   timestamp: "2024-01-15T10:00:00Z"
+#   approved_by: "user"
+#   notes: null
+
+# VALIDATION RULES:
+# - All requirement_refs must reference existing REQ-xxx.md
+# - All ac_refs must exist in parent requirement
+# - All task_refs must reference existing TASK-xxx.md
+# - All evidence paths must point to existing files
+# - FROZEN requirements must have all AC mapped to tasks

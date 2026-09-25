@@ -1,0 +1,77 @@
+﻿# project-state.yaml Template
+# AUTHORITATIVE runtime workflow state
+
+schema_version: "1"
+workflow_version: "1.0.0"
+
+lifecycle:
+  phase: INTAKE
+  phase_started_at: "${STARTED_AT}"
+  last_transition_at: "${STARTED_AT}"
+  last_transition_from: null
+
+milestone:
+  id: M1
+  name: "${MILESTONE_NAME}"
+  target_date: null
+
+requirements:
+  total: 0
+  by_status:
+    DRAFT: 0
+    REVIEW: 0
+    APPROVED: 0
+    FROZEN: 0
+    SUPERSEDED: 0
+
+tasks:
+  total: 0
+  by_status:
+    TODO: 0
+    READY: 0
+    IN_PROGRESS: 0
+    BLOCKED: 0
+    VERIFY: 0
+    DONE: 0
+
+current_task:
+  id: null
+  status: null
+  tdd:
+    phase: null
+    phase_started_at: null
+    not_applicable_reason: null
+
+blockers:
+  count: 0
+  ids: []
+
+changes:
+  pending: 0
+  ids: []
+
+release:
+  status: NOT_STARTED
+  version: null
+
+last_action:
+  action: "Project initialized"
+  timestamp: "${STARTED_AT}"
+  result: SUCCESS
+  details: null
+
+next_permitted_actions:
+  - capture_idea
+  - describe_problem
+
+validation:
+  last_validated_at: null
+  validation_result: null
+  issues: null
+
+# VALIDATION RULES:
+# - requirements.total == sum(requirements.by_status.*)
+# - tasks.total == sum(tasks.by_status.*)
+# - current_task.id must reference existing TASK-xxx.md if not null
+# - If tdd.phase is NOT_APPLICABLE, not_applicable_reason is required
+# - blockers.count == len(blockers.ids)

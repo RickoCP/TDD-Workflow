@@ -1,0 +1,53 @@
+﻿---
+task_id: ${TASK_ID}
+phase: RED
+timestamp: ${TIMESTAMP}
+command: "${COMMAND}"
+result: FAIL
+test_file: ${TEST_FILE}
+test_name: ${TEST_NAME}
+git_ref: ${GIT_REF}
+duration_ms: ${DURATION}
+---
+
+# TDD RED Evidence - ${TASK_ID}
+
+## Task Reference
+
+| Field | Value |
+|-------|-------|
+| Task | ${TASK_ID} |
+| Requirement | ${REQ_REF} |
+| Acceptance Criteria | ${AC_REF} |
+
+## Test Details
+
+| Field | Value |
+|-------|-------|
+| Test File | ${TEST_FILE} |
+| Test Name | ${TEST_NAME} |
+| Created | ${TIMESTAMP} |
+
+## Execution
+
+Command: ${COMMAND}
+
+## Result: FAIL (Expected)
+
+### Output Excerpt
+
+${OUTPUT_EXCERPT}
+
+## Analysis
+
+- [x] Test failed as expected
+- [x] Failure is due to missing implementation (not test error)
+- [x] Ready to proceed to GREEN phase
+
+## Verification
+
+| Check | Status |
+|-------|--------|
+| Test exists | PASS |
+| Test targets correct behavior | PASS |
+| Failure is legitimate | PASS |

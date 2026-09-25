@@ -1,0 +1,48 @@
+﻿---
+task_id: ${TASK_ID}
+phase: GREEN
+timestamp: ${TIMESTAMP}
+command: "${COMMAND}"
+result: PASS
+test_file: ${TEST_FILE}
+test_name: ${TEST_NAME}
+git_ref: ${GIT_REF}
+duration_ms: ${DURATION}
+files_changed: ${FILES_CHANGED}
+---
+
+# TDD GREEN Evidence - ${TASK_ID}
+
+## Task Reference
+
+| Field | Value |
+|-------|-------|
+| Task | ${TASK_ID} |
+| RED Evidence | evidence/${TASK_ID}/red.md |
+
+## Implementation
+
+### Files Changed
+
+${FILES_CHANGED_LIST}
+
+### Implementation Summary
+
+${IMPL_SUMMARY}
+
+## Execution
+
+Command: ${COMMAND}
+
+## Result: PASS
+
+### Output Excerpt
+
+${OUTPUT_EXCERPT}
+
+## Analysis
+
+- [x] Minimum implementation completed
+- [x] Target test passes
+- [x] No unrelated changes
+- [x] Ready for REFACTOR phase

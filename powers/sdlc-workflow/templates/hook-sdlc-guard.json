@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "SDLC Phase Guard",
+      "trigger": "PreToolUse",
+      "matcher": "fs_write|str_replace|edit_file",
+      "action": {
+        "type": "command",
+        "command": "node scripts/sdlc-guard.js"
+      }
+    }
+  ]
+}

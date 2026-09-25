@@ -1,0 +1,52 @@
+﻿# .config.yaml Template
+# Workflow configuration - set at project initialization
+
+schema_version: "1"
+workflow_version: "1.0.0"
+template_version: "1.0.0"
+
+project:
+  name: "${PROJECT_NAME}"
+  description: "${PROJECT_DESCRIPTION}"
+  created_at: "${CREATED_AT}"
+  created_by: "${CREATED_BY}"
+
+settings:
+  # STRICT = hooks enforce guardrails, GUIDED = steering provides guidance
+  tdd_enforcement: STRICT
+  
+  # Gates requiring human approval
+  human_gates:
+    - REQ_REVIEW
+    - DESIGN_REVIEW
+    - PLAN_REVIEW
+    - RELEASE_READINESS
+    - PRODUCTION
+  
+  # Default risk level for new tasks
+  risk_default: MEDIUM
+  
+  # Verification levels by risk
+  verification_levels:
+    LOW:
+      - unit
+    MEDIUM:
+      - unit
+      - integration
+    HIGH:
+      - unit
+      - integration
+      - regression
+    CRITICAL:
+      - unit
+      - integration
+      - regression
+      - e2e
+      - security
+      - performance
+
+# Valid values:
+# schema_version: "1" (current)
+# workflow_version: semver string
+# tdd_enforcement: STRICT | GUIDED
+# risk_default: LOW | MEDIUM | HIGH | CRITICAL

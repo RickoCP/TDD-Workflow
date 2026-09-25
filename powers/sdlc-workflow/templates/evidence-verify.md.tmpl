@@ -1,0 +1,52 @@
+﻿---
+task_id: ${TASK_ID}
+phase: VERIFY
+timestamp: ${TIMESTAMP}
+risk_level: ${RISK_LEVEL}
+git_ref: ${GIT_REF}
+verification_scope: ${VERIFICATION_SCOPE}
+result: ${OVERALL_RESULT}
+---
+
+# TDD VERIFY Evidence - ${TASK_ID}
+
+## Task Reference
+
+| Field | Value |
+|-------|-------|
+| Task | ${TASK_ID} |
+| Risk Level | ${RISK_LEVEL} |
+| REFACTOR Evidence | evidence/${TASK_ID}/refactor.md |
+
+## Verification Scope
+
+Based on risk level ${RISK_LEVEL}:
+
+${VERIFICATION_SCOPE_LIST}
+
+## Results
+
+| Check | Status | Details |
+|-------|--------|---------|
+| Unit Tests | ${UNIT_RESULT} | ${UNIT_DETAILS} |
+| Integration Tests | ${INT_RESULT} | ${INT_DETAILS} |
+| Regression Tests | ${REG_RESULT} | ${REG_DETAILS} |
+| Lint | ${LINT_RESULT} | ${LINT_DETAILS} |
+| Type Check | ${TYPE_RESULT} | ${TYPE_DETAILS} |
+| Build | ${BUILD_RESULT} | ${BUILD_DETAILS} |
+
+## Overall Result: ${OVERALL_RESULT}
+
+## Definition of Done
+
+- [${DOD_AC}] Acceptance criteria satisfied
+- [${DOD_RED}] RED evidence exists
+- [${DOD_GREEN}] GREEN evidence exists
+- [${DOD_REFACTOR}] Refactor completed
+- [${DOD_TESTS}] All applicable tests pass
+- [${DOD_LINT}] Lint passes
+- [${DOD_BUILD}] Build passes
+
+## Notes
+
+${NOTES}
