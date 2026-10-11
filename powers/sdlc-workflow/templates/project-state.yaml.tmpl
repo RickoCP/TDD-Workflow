@@ -33,14 +33,106 @@ tasks:
     BLOCKED: 0
     VERIFY: 0
     DONE: 0
+  # Task counts by assignee for workload tracking
+  # Key is developer ID, value is number of assigned tasks
+  # "unassigned" tracks tasks without an assignee
+  by_assignee:
+    unassigned: 0
+  # Example with team members:
+  # by_assignee:
+  #   "dev-001": 4                      # Developer dev-001 has 4 tasks
+  #   "dev-002": 3                      # Developer dev-002 has 3 tasks
+  #   unassigned: 3                     # 3 tasks have no assignee
+
+# Team section for multi-developer support
+team:
+  members: []
+  # Example member structure:
+  # - id: "dev-001"                      # Unique identifier (required)
+  #   name: "Alice Developer"            # Display name (required)
+  #   roles:                             # List of roles (required, min 1)
+  #     - backend
+  #     - devops
+  #   registered_at: "2024-01-15T10:00:00Z"
+  #   status: ACTIVE                     # ACTIVE | INACTIVE
+  statistics:
+    total_members: 0
+    by_role:
+      frontend: 0
+      backend: 0
+      qa: 0
+      devops: 0
+      fullstack: 0
+      lead: 0
 
 current_task:
   id: null
   status: null
+  assignee: null                       # Developer ID assigned to current task
   tdd:
     phase: null
     phase_started_at: null
     not_applicable_reason: null
+
+# Parallel task groups for multi-developer parallel execution
+# Each group contains tasks that can be worked on simultaneously
+parallel_groups: []
+# Example parallel group entry:
+# - id: "PG-001"                       # Unique group identifier (required)
+#   name: "Sprint 1 - Core Features"   # Human-readable group name (required)
+#   milestone: "M1"                    # Associated milestone ID (optional)
+#   tasks:                             # List of task IDs in this group (required, min 1)
+#     - "TASK-001"
+#     - "TASK-002"
+#     - "TASK-003"
+#   created_at: "2024-01-15T10:00:00Z" # ISO 8601 timestamp
+#   status: PENDING                    # PENDING | IN_PROGRESS | COMPLETE
+#   progress:                          # Calculated progress metrics
+#     total: 3                         # Total number of tasks
+#     completed: 0                     # Number of DONE tasks
+#     percentage: 0                    # (completed / total) * 100
+
+# Handoff points definition for role-to-role transitions
+# Defines standard handoff procedures with required checklists
+handoff_points: []
+# Example handoff point entry:
+# - id: "HP-001"                       # Unique handoff point identifier (required)
+#   name: "Backend to Frontend Handoff" # Human-readable name (required)
+#   source_role: "backend"             # Role initiating handoff (required)
+#   target_role: "frontend"            # Role receiving handoff (required)
+#   checklist:                         # Checklist items for handoff (required, min 1)
+#     - id: "CHK-001"                  # Unique checklist item identifier (required)
+#       description: "API documentation updated" # Item description (required)
+#       required: true                 # Whether item must be completed (required)
+#     - id: "CHK-002"
+#       description: "Sample request/response provided"
+#       required: true
+#     - id: "CHK-003"
+#       description: "Error codes documented"
+#       required: false
+
+# Active handoffs tracking role-to-role transitions
+# Records handoff status and checklist completion
+handoffs: []
+# Example handoff record entry:
+# - id: "HO-001"                       # Unique handoff record identifier (required)
+#   handoff_point: "HP-001"            # Reference to handoff point definition (required)
+#   source_task: "TASK-001"            # Task being handed off (required)
+#   target_task: "TASK-005"            # Receiving task (required)
+#   source_developer: "dev-001"        # Developer initiating handoff (required)
+#   target_developer: null             # Developer accepting handoff (null until accepted)
+#   status: PENDING_ACCEPTANCE         # PENDING_ACCEPTANCE | ACCEPTED | REJECTED | COMPLETE
+#   checklist_status:                  # Status of each checklist item
+#     - item_id: "CHK-001"             # Reference to checklist item id (required)
+#       completed: true                # Whether item is complete (required)
+#       completed_at: "2024-01-15T12:00:00Z" # ISO 8601 timestamp (null if not completed)
+#     - item_id: "CHK-002"
+#       completed: false
+#       completed_at: null
+#   initiated_at: "2024-01-15T11:00:00Z" # ISO 8601 timestamp of handoff initiation (required)
+#   accepted_at: null                  # ISO 8601 timestamp of acceptance (null until accepted)
+#   completed_at: null                 # ISO 8601 timestamp of completion (null until complete)
+#   rejection_reason: null             # Reason for rejection (null unless rejected)
 
 blockers:
   count: 0
@@ -72,6 +164,39 @@ validation:
 # VALIDATION RULES:
 # - requirements.total == sum(requirements.by_status.*)
 # - tasks.total == sum(tasks.by_status.*)
+# - tasks.by_assignee values must sum to tasks.total
+# - tasks.by_assignee keys must be valid developer IDs or "unassigned"
 # - current_task.id must reference existing TASK-xxx.md if not null
+# - current_task.assignee must reference a valid developer ID from team.members or be null
 # - If tdd.phase is NOT_APPLICABLE, not_applicable_reason is required
 # - blockers.count == len(blockers.ids)
+# - handoff_points[].id must be unique across all handoff points
+# - handoff_points[].source_role and target_role must be valid roles
+# - handoff_points[].checklist must have at least one item
+# - handoff_points[].checklist[].id must be unique within the handoff point
+# - handoffs[].handoff_point must reference existing handoff_points[].id
+# - handoffs[].source_task and target_task must reference existing TASK-xxx.md
+# - handoffs[].status must be one of: PENDING_ACCEPTANCE | ACCEPTED | REJECTED | COMPLETE
+# - handoffs[].checklist_status[].item_id must reference checklist item from handoff_point
+# - If handoffs[].status is COMPLETE, all required checklist items must be completed
+# - If handoffs[].status is REJECTED, rejection_reason is required
+#
+# Team Validation Rules:
+# - team.members[].id must be unique across all members
+# - team.members[].name is required and non-empty
+# - team.members[].roles must contain at least one valid role
+# - team.members[].roles values must be: frontend, backend, qa, devops, fullstack, or lead
+# - team.members[].status must be: ACTIVE or INACTIVE
+# - team.members[].registered_at must be a valid ISO 8601 timestamp
+# - team.statistics.total_members == len(team.members)
+# - team.statistics.by_role counts must reflect actual role assignments across all members
+#
+# PARALLEL GROUPS VALIDATION RULES:
+# - Each parallel_groups[].id must be unique
+# - Each parallel_groups[].tasks[] must reference an existing TASK-xxx.md
+# - parallel_groups[].tasks must contain at least 1 task ID
+# - parallel_groups[].status must be one of: PENDING, IN_PROGRESS, COMPLETE
+# - parallel_groups[].progress.total == len(parallel_groups[].tasks)
+# - parallel_groups[].progress.percentage == (completed / total) * 100
+# - Tasks within a parallel group must NOT have internal blocking dependencies
+# - If milestone is specified, it must reference a valid milestone ID

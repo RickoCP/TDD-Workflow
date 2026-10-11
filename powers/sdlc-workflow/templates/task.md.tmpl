@@ -11,6 +11,15 @@
 | Requirement | ${REQ_REF} |
 | Design | ${DESIGN_REF} |
 
+## Assignment
+
+| Field | Value |
+|-------|-------|
+| Assignee | ${ASSIGNEE} |
+| Role Required | ${ROLE_REQUIRED} |
+| Assigned At | ${ASSIGNED_AT} |
+| Assigned By | ${ASSIGNED_BY} |
+
 ## Acceptance Criteria
 
 - ${AC_REF_1}
@@ -23,6 +32,19 @@ ${DESCRIPTION}
 
 - ${DEPENDENCY_1}
 
+## Depends On
+
+<!--
+depends_on:
+  - task_id: ""           # Task ID this task depends on (e.g., "TASK-001")
+    type: ""              # blocking | non_blocking
+    reason: ""            # Reason for the dependency
+-->
+
+| Task ID | Type | Reason |
+|---------|------|--------|
+| ${DEPENDS_ON_TASK_ID} | ${DEPENDS_ON_TYPE} | ${DEPENDS_ON_REASON} |
+
 ## Expected Files/Components
 
 - ${FILE_1}
@@ -30,6 +52,18 @@ ${DESCRIPTION}
 ## Test Requirements
 
 - ${TEST_REQ_1}
+
+## Parallel Group
+
+parallel_group: ${PARALLEL_GROUP}
+
+## Assignment History
+
+assignment_history:
+  - previous_assignee: ${PREV_ASSIGNEE_1}
+    new_assignee: ${NEW_ASSIGNEE_1}
+    timestamp: ${ASSIGNMENT_TIMESTAMP_1}
+    reason: "${ASSIGNMENT_REASON_1}"
 
 ## Implementation Notes
 
