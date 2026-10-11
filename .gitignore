@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Test output files
+test-error.txt
+test-output.txt
+test-result.txt
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# Build output
+coverage/
+dist/
+
+# Environment files
+.env
+*.local
