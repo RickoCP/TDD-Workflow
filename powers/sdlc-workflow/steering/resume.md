@@ -281,6 +281,262 @@ When resuming a multi-developer project:
 
 Repository reality wins over stale state.
 
+---
+
+## Checkpoint-Based Recovery
+
+### Overview
+
+Checkpoints capture workflow state at key moments, enabling recovery after crashes, context resets, or session interruptions. The `Checkpoint_Manager` handles checkpoint creation and recovery.
+
+### Checkpoint Location
+
+```
+.kiro/sdlc/checkpoints/
+├── CP-2026-10-12-001.yaml
+├── CP-2026-10-12-002.yaml
+└── CP-2026-10-12-003.yaml
+```
+
+### Checkpoint Contents
+
+Each checkpoint captures:
+
+```yaml
+checkpoint_id: "CP-2026-10-12-001"
+created_at: "2026-10-12T10:30:00Z"
+created_by: "dev-001"
+trigger: "tdd_phase_transition"
+
+snapshot:
+  state_version: 42
+  task_id: "TASK-003"
+  task_status: IN_PROGRESS
+  owner_id: "dev-001"
+  fencing_token: "550e8400-e29b-41d4-a716-446655440000"
+  tdd_phase: GREEN
+  
+  # Git state
+  branch_name: "task/TASK-003-user-auth"
+  commit_sha: "abc123def456"
+  uncommitted_changes:
+    - path: "src/auth.ts"
+      type: "modified"
+  
+  # Evidence collected
+  evidence_refs:
+    - "EVD-TASK-003-RED"
+  
+  # Blockers
+  blockers: []
+  
+  # Recommended next action
+  next_action: "Continue GREEN phase: implement minimum code to pass test"
+```
+
+### Automatic Checkpoint Triggers
+
+Checkpoints are automatically created on:
+
+| Trigger | Description |
+|---------|-------------|
+| `state_transition` | Task status changes (TODO → IN_PROGRESS) |
+| `tdd_phase_transition` | TDD phase advances (RED → GREEN) |
+| `evidence_created` | New evidence file recorded |
+| `handoff` | Handoff initiated or completed |
+| `periodic` | Configurable interval (default: 15 min if active) |
+| `manual` | User explicitly requests checkpoint |
+
+### Recovery Process
+
+**Trigger**: User says "recover", "restore checkpoint", "resume from checkpoint"
+
+```
+1. Read Available Checkpoints
+
+   Checkpoints for TASK-003:
+   ┌─────────────────────┬───────────┬──────────────────────┐
+   │ ID                  │ Trigger   │ State                │
+   ├─────────────────────┼───────────┼──────────────────────┤
+   │ CP-2026-10-12-003   │ manual    │ GREEN phase, v=45    │
+   │ CP-2026-10-12-002   │ tdd_phase │ GREEN phase, v=43    │
+   │ CP-2026-10-12-001   │ evidence  │ RED complete, v=42   │
+   └─────────────────────┴───────────┴──────────────────────┘
+   
+   Latest: CP-2026-10-12-003 (2 hours ago)
+
+2. Validate Checkpoint Against Current State
+
+   Validating CP-2026-10-12-003...
+   
+   ✓ Checkpoint commit abc123 exists and is reachable
+   ✓ Branch task/TASK-003-user-auth exists
+   ⚠ Current HEAD is def456 (2 commits ahead of checkpoint)
+   ⚠ State version: checkpoint=45, current=47
+   ✓ Fencing token still valid for dev-001
+   ✓ Evidence files exist
+   
+   Discrepancies detected (see below)
+
+3. Generate Recovery Plan
+
+   Recovery Plan for CP-2026-10-12-003:
+   
+   Discrepancies:
+   - State version mismatch (45 vs 47)
+   - 2 commits added since checkpoint
+   - Files modified: src/auth.ts, src/auth.test.ts
+   
+   Strategy: PROMPT_USER
+   
+   Proposed Actions:
+   1. Preserve current work (uncommitted changes safe)
+   2. Update state to reflect current git position
+   3. Mark checkpoint as reconciled
+   4. Continue from TDD GREEN phase
+   
+   WARNING: Some work may have occurred outside workflow.
+
+4. User Confirmation Required
+
+   Proceed with recovery? [Y/n/details]
+```
+
+### Recovery Strategies
+
+| Strategy | When Used | Action |
+|----------|-----------|--------|
+| `AUTO_MERGE` | Changes compatible, no conflicts | Auto-reconcile and continue |
+| `PROMPT_USER` | Conflicts or ambiguity detected | Show plan, await confirmation |
+| `REJECT` | Checkpoint too stale | Require fresh start or newer checkpoint |
+
+### Discrepancy Types
+
+| Discrepancy | Detection | Impact |
+|-------------|-----------|--------|
+| State version mismatch | version != current | May indicate concurrent changes |
+| Commit divergence | SHA not current HEAD | Work happened outside checkpoint |
+| Branch missing | Branch deleted | Cannot recover git context |
+| Files modified | Hash changed | Code changed since checkpoint |
+| Ownership changed | Different owner | May need re-claim |
+| Evidence invalidated | Evidence marked stale | Revalidation needed |
+
+### Recovery Examples
+
+**Clean Recovery (AUTO_MERGE):**
+```
+Recovering from CP-2026-10-12-003...
+
+Validation:
+  ✓ Commit matches current HEAD
+  ✓ State version matches
+  ✓ No file changes detected
+  ✓ Ownership valid
+
+Strategy: AUTO_MERGE
+
+✓ Recovery complete
+  Task: TASK-003 (IN_PROGRESS)
+  TDD Phase: GREEN
+  Next Action: Implement minimum code to pass test
+
+Ready to continue. What would you like to do?
+```
+
+**Prompted Recovery (PROMPT_USER):**
+```
+Recovering from CP-2026-10-12-002...
+
+Validation:
+  ✓ Commit exists in history
+  ⚠ 3 commits since checkpoint
+  ⚠ src/auth.ts modified (by checkpoint owner)
+  ✓ Ownership still valid
+
+Strategy: PROMPT_USER
+
+Proposed Recovery Plan:
+  1. Acknowledge commits abc→def→ghi as valid progress
+  2. Update checkpoint reference to current state
+  3. Continue from GREEN phase
+
+Changes since checkpoint:
+  - Commit def: "Add password hashing"
+  - Commit ghi: "Fix import path"
+
+These changes appear to be valid TDD progress.
+Continue with recovery? [Y/n]
+```
+
+**Rejected Recovery:**
+```
+Attempting recovery from CP-2026-10-10-001...
+
+Validation:
+  ✗ Checkpoint is 2 days old
+  ✗ State version: 23 vs current 58
+  ✗ Branch was deleted and recreated
+  ✗ 15 commits between checkpoint and HEAD
+
+Strategy: REJECT
+
+Cannot safely recover from this checkpoint.
+Too many changes have occurred since checkpoint creation.
+
+Options:
+1. Use a more recent checkpoint (if available)
+2. Start fresh from current state
+3. Manually reconcile differences
+```
+
+### Manual Checkpoint Creation
+
+**Trigger**: User says "create checkpoint", "save checkpoint"
+
+```
+Creating manual checkpoint...
+
+Checkpoint Details:
+  ID: CP-2026-10-12-004
+  Task: TASK-003
+  TDD Phase: GREEN
+  State Version: 48
+  Branch: task/TASK-003-user-auth
+  Commit: ghi789jkl012
+  Uncommitted: 2 files
+
+Note (optional): "Before refactoring auth module"
+
+✓ Checkpoint created
+  Location: .kiro/sdlc/checkpoints/CP-2026-10-12-004.yaml
+  
+This checkpoint can be used for recovery if needed.
+```
+
+### Checkpoint Pruning
+
+Checkpoints are pruned to prevent accumulation:
+
+- Default: Keep last 10 checkpoints per task
+- Configurable via `checkpoint_retention_count`
+- Manual checkpoints preserved longer than automatic ones
+
+```
+Pruning old checkpoints for TASK-003...
+
+Before: 15 checkpoints
+After: 10 checkpoints
+
+Removed:
+  - CP-2026-10-08-001 (oldest automatic)
+  - CP-2026-10-08-002
+  - ...
+
+Kept: 10 most recent (includes 2 manual checkpoints)
+```
+
+---
+
 ## Evidence Freshness
 
 Evidence is STALE if:
@@ -301,3 +557,13 @@ STALE evidence requires re-verification.
   - Check handoff state before starting dependent tasks
   - Verify parallel group integrity before progress updates
   - Report developer-specific context for active members
+- For checkpoint recovery:
+  - NEVER auto-recover without user confirmation for PROMPT_USER strategy
+  - ALWAYS preserve uncommitted user work
+  - REJECT checkpoints that are too stale (configurable threshold)
+  - Record recovery in audit log
+- For ownership recovery:
+  - Validate fencing tokens are still valid
+  - Check AI agent leases haven't expired
+  - Report if ownership needs reclaim
+  - Warn if task was marked ABANDONED

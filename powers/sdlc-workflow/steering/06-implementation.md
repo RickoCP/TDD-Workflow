@@ -626,6 +626,236 @@ In addition to standard TDD guardrails, parallel execution adds:
 - Rejected handoffs MUST be addressed before resubmission
 - Only developers with matching role can accept handoffs
 
+---
+
+## Task Ownership & Concurrency Control
+
+### Overview
+
+Task ownership ensures exclusive access to tasks through fencing tokens and leases. This prevents concurrent modifications and ensures data consistency.
+
+### Fencing Tokens
+
+Every task ownership period has a unique **fencing token** (UUID v4):
+
+```yaml
+current_task:
+  id: TASK-003
+  status: IN_PROGRESS
+  assignee: "dev-001"
+  ownership:
+    fencing_token: "550e8400-e29b-41d4-a716-446655440000"
+    acquired_at: "2026-10-12T10:00:00Z"
+    actor_type: HUMAN
+```
+
+**Rules:**
+- All write operations MUST include the fencing token
+- Operations with invalid/expired tokens are REJECTED
+- Token is invalidated when ownership transfers or releases
+
+**Token Validation Flow:**
+```
+Developer attempts write operation
+     │
+     ├── Include fencing_token in request
+     │
+     ├── System validates token
+     │         │
+     │         ├── Token matches? → Proceed
+     │         │
+     │         └── Token invalid? → REJECT with error
+     │               - TOKEN_NOT_FOUND
+     │               - TOKEN_EXPIRED (AI agent lease)
+     │               - TOKEN_SUPERSEDED (ownership transferred)
+     │               - OWNERSHIP_MISMATCH
+     │
+     └── Operation completes or fails
+```
+
+### Human vs AI Agent Ownership
+
+| Aspect | Human Developer | AI Agent |
+|--------|-----------------|----------|
+| Lease Timeout | None (no auto-expiry) | Configurable (default: 1 hour) |
+| Heartbeat Required | No | Yes (default: every 5 minutes) |
+| Inactivity Warning | Optional (after 2 hours) | Lease expiry warning |
+| Token Expiry | Only on explicit release/transfer | On lease expiry or explicit action |
+
+### AI Agent Lease Management
+
+**Trigger**: AI agent claims a task
+
+AI agents MUST maintain their ownership through heartbeats:
+
+```yaml
+ownership:
+  fencing_token: "uuid-..."
+  acquired_at: "2026-10-12T10:00:00Z"
+  actor_type: AI_AGENT
+  lease_expires_at: "2026-10-12T11:00:00Z"
+  last_heartbeat_at: "2026-10-12T10:30:00Z"
+  heartbeat_interval_seconds: 300
+```
+
+**Lease Lifecycle:**
+```
+AI Agent claims task
+     │
+     ├── Fencing token issued
+     ├── Lease started (1 hour default)
+     │
+     ├── Every 5 minutes: Send heartbeat
+     │         │
+     │         ├── Heartbeat received → Extend lease if needed
+     │         │
+     │         └── Heartbeat missed
+     │               │
+     │               ├── 1 interval: Warning state
+     │               │
+     │               └── 2 intervals: LEASE_EXPIRED
+     │                     │
+     │                     ├── Token invalidated
+     │                     ├── Task marked ABANDONED
+     │                     └── Available for reclaim
+     │
+     └── Agent releases task or transfers ownership
+```
+
+**Heartbeat Response:**
+```
+Recording heartbeat for TASK-003...
+
+✓ Heartbeat recorded at 10:30:00
+  Lease expires: 11:00:00
+  Time remaining: 30 minutes
+  Status: OK
+
+[If near expiry]
+⚠ Lease Warning: Only 5 minutes remaining
+  Consider extending work or initiating handoff
+```
+
+### Claiming a Task with Ownership
+
+**Trigger**: `Task_Assigner.assignTask()` or user says "start task", "claim task"
+
+When claiming a task:
+
+1. Validate task is in claimable state (READY, ASSIGNED)
+2. Check no active owner exists
+3. Generate fencing token
+4. Record ownership atomically via `State_Controller`
+5. For AI agent: Create lease with heartbeat requirements
+
+**Example:**
+```
+Claiming task TASK-003 for dev-001 (HUMAN)...
+
+✓ Task claimed successfully
+  Fencing Token: 550e8400-e29b-41d4-a716-446655440000
+  Acquired At: 2026-10-12T10:00:00Z
+  Actor Type: HUMAN
+
+Your fencing token is required for all operations on this task.
+Token will be invalidated if you release or transfer the task.
+```
+
+**Claim Rejection:**
+```
+✗ Cannot claim TASK-003
+
+Reason: Task already claimed by dev-002
+Current Owner: dev-002 (HUMAN)
+Claimed Since: 2026-10-12T08:00:00Z
+
+Options:
+1. Request handoff from dev-002
+2. Wait for dev-002 to release
+3. Ask project lead for reassignment
+```
+
+### Ownership Transfer During Handoff
+
+When handoff completes:
+
+1. Validate source fencing token
+2. Atomically:
+   - Invalidate old token
+   - Generate new token for target
+   - Update ownership record
+3. Record transfer in history
+
+**Example:**
+```
+Transferring TASK-003 ownership from dev-001 to dev-002...
+
+Transfer Details:
+  From: dev-001 (fencing token: abc...)
+  To: dev-002 (HUMAN)
+
+✓ Transfer complete
+  Old token invalidated: abc...
+  New token issued: def...
+  Transferred at: 2026-10-12T14:00:00Z
+
+dev-001: Your fencing token is no longer valid for TASK-003.
+dev-002: New fencing token issued. Include in all operations.
+```
+
+### Releasing Task Ownership
+
+**Trigger**: User says "release task", task completes, or explicit release
+
+```
+Releasing ownership of TASK-003...
+
+Release Details:
+  Task: TASK-003
+  Owner: dev-001
+  Fencing Token: 550e8400-e29b...
+  Release Reason: task_completed
+
+✓ Ownership released
+  Token invalidated
+  Task available for other operations
+```
+
+### State Versioning (Optimistic Concurrency)
+
+The project state uses optimistic concurrency control:
+
+```yaml
+state_version: 42
+last_modified_at: "2026-10-12T10:00:00Z"
+last_modified_by: "dev-001"
+```
+
+**Write Flow:**
+```
+1. Read state with version (v42)
+2. Modify state
+3. Write with expected version (42)
+   │
+   ├── Version matches → Write succeeds (v43)
+   │
+   └── Version mismatch → CONFLICT error
+         │
+         └── Retry with exponential backoff
+```
+
+**Conflict Handling:**
+```
+⚠ State version conflict detected
+
+Expected version: 42
+Current version: 43
+Last modified by: dev-002 at 10:01:00Z
+
+Retrying operation (attempt 2/3)...
+✓ Operation succeeded on retry
+```
+
 ## TDD NOT_APPLICABLE
 
 Only for tasks without executable behavior:

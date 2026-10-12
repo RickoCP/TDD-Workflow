@@ -7,7 +7,7 @@
  * **Validates: Requirements 3.1-3.6, 4.1-4.3, 16.1-16.3**
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   Assignment,
   AssignmentError,
@@ -34,6 +34,8 @@ import {
   TaskAssignerImpl,
   InMemoryTaskStorage,
   TeamManagerForAssigner,
+  OwnershipManagerForAssigner,
+  ownershipClaimFailedError,
 } from '../task-assigner';
 import {
   TeamMember,
@@ -1331,6 +1333,491 @@ describe('Task_Assigner Unit Tests', () => {
       // Verify history completeness
       const history = taskAssigner.getAssignmentHistory('TASK-INTEGRITY');
       expect(history.length).toBe(5); // 3 assignments + 2 unassignments
+    });
+  });
+});
+
+// =============================================================================
+// Mock Ownership_Manager Implementation for Unit Testing
+// =============================================================================
+
+/**
+ * In-memory mock implementation of OwnershipManagerForAssigner for testing.
+ */
+class MockOwnershipManager implements OwnershipManagerForAssigner {
+  private claimedTasks: Map<string, { ownerId: string; fencingToken: string; actorType: 'HUMAN' | 'AI_AGENT' }> = new Map();
+  private tokenCounter = 0;
+  
+  /**
+   * Track function calls for assertions.
+   */
+  public claimTaskCalls: Array<{ taskId: string; ownerId: string; actorType: 'HUMAN' | 'AI_AGENT' }> = [];
+  
+  /**
+   * Set to simulate claim failure.
+   */
+  public simulateClaimFailure: boolean = false;
+  public simulateClaimFailureCode: number = 2101; // TASK_ALREADY_CLAIMED
+  public simulateClaimFailureMessage: string = 'Task is already claimed by another owner';
+
+  /**
+   * Generate a mock fencing token.
+   */
+  private generateToken(): string {
+    this.tokenCounter++;
+    return `mock-fencing-token-${this.tokenCounter}-${Date.now()}`;
+  }
+
+  /**
+   * Claims ownership of a task.
+   */
+  async claimTask(
+    taskId: string,
+    ownerId: string,
+    actorType: 'HUMAN' | 'AI_AGENT'
+  ): Promise<{ success: true; value: { fencing_token: string; acquired_at: string } } | { success: false; error: { code: number; message: string } }> {
+    // Record the call
+    this.claimTaskCalls.push({ taskId, ownerId, actorType });
+    
+    // Simulate failure if configured
+    if (this.simulateClaimFailure) {
+      return {
+        success: false,
+        error: {
+          code: this.simulateClaimFailureCode,
+          message: this.simulateClaimFailureMessage,
+        },
+      };
+    }
+
+    // Check if task is already claimed by someone else
+    const existing = this.claimedTasks.get(taskId);
+    if (existing && existing.ownerId !== ownerId) {
+      return {
+        success: false,
+        error: {
+          code: 2101, // TASK_ALREADY_CLAIMED
+          message: `Task ${taskId} is already claimed by ${existing.ownerId}`,
+        },
+      };
+    }
+
+    // Create new claim
+    const fencingToken = this.generateToken();
+    this.claimedTasks.set(taskId, { ownerId, fencingToken, actorType });
+
+    return {
+      success: true,
+      value: {
+        fencing_token: fencingToken,
+        acquired_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  /**
+   * Releases ownership of a task.
+   */
+  async releaseTask(
+    taskId: string,
+    fencingToken: string
+  ): Promise<{ success: true; value: void } | { success: false; error: { code: number; message: string } }> {
+    const existing = this.claimedTasks.get(taskId);
+    if (!existing) {
+      return {
+        success: false,
+        error: {
+          code: 2104, // TASK_NOT_FOUND
+          message: `Task ${taskId} not found`,
+        },
+      };
+    }
+    if (existing.fencingToken !== fencingToken) {
+      return {
+        success: false,
+        error: {
+          code: 2102, // INVALID_FENCING_TOKEN
+          message: 'Fencing token does not match',
+        },
+      };
+    }
+
+    this.claimedTasks.delete(taskId);
+    return { success: true, value: undefined };
+  }
+
+  /**
+   * Clears all claims (for test reset).
+   */
+  clear(): void {
+    this.claimedTasks.clear();
+    this.claimTaskCalls = [];
+    this.tokenCounter = 0;
+    this.simulateClaimFailure = false;
+  }
+
+  /**
+   * Gets the claim for a task (for test assertions).
+   */
+  getClaim(taskId: string): { ownerId: string; fencingToken: string; actorType: 'HUMAN' | 'AI_AGENT' } | null {
+    return this.claimedTasks.get(taskId) ?? null;
+  }
+}
+
+/**
+ * Extended In-memory Team_Manager that supports actor type.
+ */
+class InMemoryTeamManagerWithActorType implements TeamManagerForAssigner {
+  private members: Map<string, TeamMember & { actorType?: 'HUMAN' | 'AI_AGENT' }> = new Map();
+
+  /**
+   * Registers a new team member with optional actor type.
+   */
+  registerMember(member: TeamMember, actorType?: 'HUMAN' | 'AI_AGENT'): void {
+    this.members.set(member.id, { ...member, actorType });
+  }
+
+  /**
+   * Validates if a developer ID exists in the team.
+   */
+  validateDeveloperId(developerId: string): boolean {
+    return this.members.has(developerId);
+  }
+
+  /**
+   * Gets the roles of a team member.
+   */
+  getMemberRoles(developerId: string): Role[] | null {
+    const member = this.members.get(developerId);
+    return member ? [...member.roles] : null;
+  }
+
+  /**
+   * Gets the actor type of a team member.
+   */
+  getActorType(developerId: string): 'HUMAN' | 'AI_AGENT' | null {
+    const member = this.members.get(developerId);
+    return member?.actorType ?? null;
+  }
+
+  /**
+   * Clears all members (for test reset).
+   */
+  clear(): void {
+    this.members.clear();
+  }
+}
+
+// =============================================================================
+// Ownership Integration Tests
+// =============================================================================
+
+describe('Task_Assigner Ownership Integration Tests', () => {
+  /**
+   * **Validates: Requirements R02.3, R02.4**
+   */
+  let teamManager: InMemoryTeamManagerWithActorType;
+  let taskStorage: InMemoryTaskStorage;
+  let ownershipManager: MockOwnershipManager;
+  let taskAssigner: TaskAssignerImpl;
+
+  beforeEach(() => {
+    teamManager = new InMemoryTeamManagerWithActorType();
+    taskStorage = new InMemoryTaskStorage();
+    ownershipManager = new MockOwnershipManager();
+    taskAssigner = new TaskAssignerImpl({
+      teamManager,
+      taskStorage,
+      currentUserId: 'lead-001',
+      ownershipManager,
+    });
+  });
+
+  // ===========================================================================
+  // 6. assignTaskWithOwnership Tests
+  // Validates: Requirements R02.3, R02.4
+  // ===========================================================================
+  describe('6. assignTaskWithOwnership Tests', () => {
+    describe('Successful assignment with ownership claim', () => {
+      it('should call claimTask and return fencing token on successful assignment', async () => {
+        // Setup: Register a developer
+        const developer = createValidMember({ id: 'dev-ownership', roles: ['backend'] });
+        teamManager.registerMember(developer);
+
+        // Setup: Create a task
+        const task = createValidTask({ id: 'TASK-OWN-001' });
+        taskStorage.addTask(task);
+
+        // Act
+        const result = await taskAssigner.assignTaskWithOwnership('TASK-OWN-001', 'dev-ownership');
+
+        // Assert: Assignment succeeded
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.value.taskId).toBe('TASK-OWN-001');
+          expect(result.value.assignee).toBe('dev-ownership');
+          expect(result.value.fencing_token).toBeDefined();
+          expect(result.value.fencing_token).toContain('mock-fencing-token');
+          expect(result.value.actor_type).toBe('HUMAN'); // Default
+        }
+
+        // Assert: claimTask was called with correct parameters
+        expect(ownershipManager.claimTaskCalls.length).toBe(1);
+        expect(ownershipManager.claimTaskCalls[0]).toEqual({
+          taskId: 'TASK-OWN-001',
+          ownerId: 'dev-ownership',
+          actorType: 'HUMAN',
+        });
+      });
+
+      it('should use actor type from team manager when available', async () => {
+        // Setup: Register an AI agent
+        const aiAgent = createValidMember({ id: 'ai-agent-001', roles: ['backend'] });
+        teamManager.registerMember(aiAgent, 'AI_AGENT');
+
+        // Setup: Create a task
+        const task = createValidTask({ id: 'TASK-OWN-002' });
+        taskStorage.addTask(task);
+
+        // Act
+        const result = await taskAssigner.assignTaskWithOwnership('TASK-OWN-002', 'ai-agent-001');
+
+        // Assert: Actor type is AI_AGENT
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.value.actor_type).toBe('AI_AGENT');
+        }
+
+        // Assert: claimTask was called with AI_AGENT actor type
+        expect(ownershipManager.claimTaskCalls[0].actorType).toBe('AI_AGENT');
+      });
+
+      it('should default to HUMAN when actor type is not specified in team manager', async () => {
+        // Setup: Register a developer without explicit actor type
+        const developer = createValidMember({ id: 'dev-default', roles: ['frontend'] });
+        teamManager.registerMember(developer); // No actor type
+
+        // Setup: Create a task
+        const task = createValidTask({ id: 'TASK-OWN-003' });
+        taskStorage.addTask(task);
+
+        // Act
+        const result = await taskAssigner.assignTaskWithOwnership('TASK-OWN-003', 'dev-default');
+
+        // Assert
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.value.actor_type).toBe('HUMAN');
+        }
+        expect(ownershipManager.claimTaskCalls[0].actorType).toBe('HUMAN');
+      });
+
+      it('should store fencing token in task assignment', async () => {
+        // Setup
+        const developer = createValidMember({ id: 'dev-store', roles: ['backend'] });
+        teamManager.registerMember(developer);
+        const task = createValidTask({ id: 'TASK-OWN-004' });
+        taskStorage.addTask(task);
+
+        // Act
+        const result = await taskAssigner.assignTaskWithOwnership('TASK-OWN-004', 'dev-store');
+        expect(result.success).toBe(true);
+
+        // Assert: Fencing token is stored in the task
+        const storedTask = taskStorage.getTask('TASK-OWN-004');
+        expect(storedTask?.assignment?.fencing_token).toBeDefined();
+        expect(storedTask?.assignment?.fencing_token).toContain('mock-fencing-token');
+      });
+    });
+
+    describe('Failed assignment due to ownership claim failure', () => {
+      it('should fail with TASK_ALREADY_ASSIGNED when task is already claimed by another user', async () => {
+        // Setup: Register two developers
+        const dev1 = createValidMember({ id: 'dev-first', roles: ['backend'] });
+        const dev2 = createValidMember({ id: 'dev-second', roles: ['backend'] });
+        teamManager.registerMember(dev1);
+        teamManager.registerMember(dev2);
+
+        // Setup: Create a task
+        const task = createValidTask({ id: 'TASK-OWN-005' });
+        taskStorage.addTask(task);
+
+        // First assignment should succeed
+        const result1 = await taskAssigner.assignTaskWithOwnership('TASK-OWN-005', 'dev-first');
+        expect(result1.success).toBe(true);
+
+        // Second assignment by different user should fail due to ownership
+        const result2 = await taskAssigner.assignTaskWithOwnership('TASK-OWN-005', 'dev-second');
+        expect(result2.success).toBe(false);
+        if (!result2.success) {
+          expect(result2.error.code).toBe(AssignmentErrorCode.TASK_ALREADY_ASSIGNED);
+        }
+      });
+
+      it('should fail with OWNERSHIP_CLAIM_FAILED when claim fails for other reasons', async () => {
+        // Setup
+        const developer = createValidMember({ id: 'dev-claim-fail', roles: ['backend'] });
+        teamManager.registerMember(developer);
+        const task = createValidTask({ id: 'TASK-OWN-006' });
+        taskStorage.addTask(task);
+
+        // Configure mock to simulate a different claim failure
+        ownershipManager.simulateClaimFailure = true;
+        ownershipManager.simulateClaimFailureCode = 2113; // CLAIM_FAILED (not TASK_ALREADY_CLAIMED)
+        ownershipManager.simulateClaimFailureMessage = 'Claim operation failed due to conflict';
+
+        // Act
+        const result = await taskAssigner.assignTaskWithOwnership('TASK-OWN-006', 'dev-claim-fail');
+
+        // Assert
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.code).toBe(AssignmentErrorCode.OWNERSHIP_CLAIM_FAILED);
+          expect(result.error.message).toContain('Failed to claim ownership');
+        }
+      });
+    });
+
+    describe('Validation errors before ownership claim', () => {
+      it('should fail with DEVELOPER_NOT_FOUND before attempting claim', async () => {
+        // Setup: Create a task but don't register the developer
+        const task = createValidTask({ id: 'TASK-OWN-007' });
+        taskStorage.addTask(task);
+
+        // Act
+        const result = await taskAssigner.assignTaskWithOwnership('TASK-OWN-007', 'non-existent');
+
+        // Assert: No claimTask call should be made
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.code).toBe(AssignmentErrorCode.DEVELOPER_NOT_FOUND);
+        }
+        expect(ownershipManager.claimTaskCalls.length).toBe(0);
+      });
+
+      it('should fail with ROLE_MISMATCH before attempting claim', async () => {
+        // Setup: Register a developer with wrong role
+        const developer = createValidMember({ id: 'dev-wrong-role', roles: ['frontend'] });
+        teamManager.registerMember(developer);
+
+        // Create a task requiring backend role
+        const task: Task = {
+          id: 'TASK-OWN-008',
+          title: 'Backend task',
+          status: 'TODO',
+          assignment: {
+            taskId: 'TASK-OWN-008',
+            assignee: null,
+            role_required: 'backend',
+            assigned_at: new Date().toISOString(),
+            assigned_by: null,
+            state: 'AVAILABLE_FOR_PICKUP',
+          },
+          assignment_history: [],
+        };
+        taskStorage.addTask(task);
+
+        // Act
+        const result = await taskAssigner.assignTaskWithOwnership('TASK-OWN-008', 'dev-wrong-role');
+
+        // Assert: No claimTask call should be made
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.code).toBe(AssignmentErrorCode.ROLE_MISMATCH);
+        }
+        expect(ownershipManager.claimTaskCalls.length).toBe(0);
+      });
+
+      it('should fail with TASK_NOT_FOUND before attempting claim', async () => {
+        // Setup: Register developer but no task
+        const developer = createValidMember({ id: 'dev-no-task', roles: ['backend'] });
+        teamManager.registerMember(developer);
+
+        // Act
+        const result = await taskAssigner.assignTaskWithOwnership('NON-EXISTENT-TASK', 'dev-no-task');
+
+        // Assert
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.code).toBe(AssignmentErrorCode.TASK_NOT_FOUND);
+        }
+        expect(ownershipManager.claimTaskCalls.length).toBe(0);
+      });
+    });
+
+    describe('Assignment history with ownership', () => {
+      it('should record history entry on successful assignment with ownership', async () => {
+        // Setup
+        const developer = createValidMember({ id: 'dev-history', roles: ['backend'] });
+        teamManager.registerMember(developer);
+        const task = createValidTask({ id: 'TASK-OWN-009' });
+        taskStorage.addTask(task);
+
+        // Act
+        const result = await taskAssigner.assignTaskWithOwnership('TASK-OWN-009', 'dev-history');
+        expect(result.success).toBe(true);
+
+        // Assert: History entry created
+        const history = taskAssigner.getAssignmentHistory('TASK-OWN-009');
+        expect(history.length).toBe(1);
+        expect(history[0].previous_assignee).toBeNull();
+        expect(history[0].new_assignee).toBe('dev-history');
+      });
+    });
+  });
+
+  // ===========================================================================
+  // 7. Backward Compatibility Tests
+  // Validates: Existing functionality preserved
+  // ===========================================================================
+  describe('7. Backward Compatibility Tests', () => {
+    describe('Synchronous assignTask still works without ownership', () => {
+      it('should allow assignTask without ownership manager configured', () => {
+        // Create a new TaskAssigner WITHOUT ownership manager
+        const simpleTeamManager = new InMemoryTeamManager();
+        const simpleTaskStorage = new InMemoryTaskStorage();
+        const simpleTaskAssigner = new TaskAssignerImpl({
+          teamManager: simpleTeamManager,
+          taskStorage: simpleTaskStorage,
+          currentUserId: 'lead-simple',
+          // No ownershipManager
+        });
+
+        // Setup
+        const developer = createValidMember({ id: 'dev-simple', roles: ['backend'] });
+        simpleTeamManager.registerMember(developer);
+        const task = createValidTask({ id: 'TASK-SIMPLE' });
+        simpleTaskStorage.addTask(task);
+
+        // Act: Synchronous assignTask
+        const result = simpleTaskAssigner.assignTask('TASK-SIMPLE', 'dev-simple');
+
+        // Assert: Assignment succeeded without fencing token
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.value.taskId).toBe('TASK-SIMPLE');
+          expect(result.value.assignee).toBe('dev-simple');
+          expect(result.value.fencing_token).toBeUndefined();
+          expect(result.value.actor_type).toBeUndefined();
+        }
+      });
+
+      it('synchronous assignTask does not call ownership manager', () => {
+        // Setup with ownership manager
+        const developer = createValidMember({ id: 'dev-sync', roles: ['backend'] });
+        teamManager.registerMember(developer);
+        const task = createValidTask({ id: 'TASK-SYNC' });
+        taskStorage.addTask(task);
+
+        // Act: Synchronous assignTask (even with ownershipManager configured)
+        const result = taskAssigner.assignTask('TASK-SYNC', 'dev-sync');
+
+        // Assert: Assignment succeeded
+        expect(result.success).toBe(true);
+
+        // Assert: Ownership manager was NOT called (sync version doesn't use it)
+        expect(ownershipManager.claimTaskCalls.length).toBe(0);
+      });
     });
   });
 });

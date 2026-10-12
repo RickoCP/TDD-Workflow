@@ -1,0 +1,99 @@
+# finding.yaml Template
+# Review finding record for tracking issues (R11)
+# File: .kiro/sdlc/findings/FND-${FINDING_SEQ}.yaml
+
+finding_id: "FND-${FINDING_SEQ}"
+created_at: "${CREATED_AT}"
+
+# Task and review context
+task_id: "${TASK_ID}"                  # Related task
+review_round: ${REVIEW_ROUND}          # Which review iteration (1, 2, 3, etc.)
+
+# Finding classification
+severity: ${SEVERITY}                  # CRITICAL | HIGH | MEDIUM | LOW | INFO
+category: ${CATEGORY}                  # BUG | SECURITY | PERFORMANCE | STYLE | DOCUMENTATION | OTHER
+
+# Scope - where the issue was found
+scope:
+  type: ${SCOPE_TYPE}                  # file_location | general
+  file: ${SCOPE_FILE}                  # File path (null if type is "general")
+  line_start: ${SCOPE_LINE_START}      # Starting line number (null if type is "general")
+  line_end: ${SCOPE_LINE_END}          # Ending line number (null if type is "general")
+
+# Finding details
+description: "${DESCRIPTION}"          # Clear description of the issue
+evidence: "${EVIDENCE}"                # How the issue was found
+acceptance_criteria: |
+  ${ACCEPTANCE_CRITERIA}
+
+# Assignment
+owner_id: ${OWNER_ID}                  # Who should fix this (null if unassigned)
+
+# Status tracking
+status: ${STATUS}                      # OPEN | IN_PROGRESS | RESOLVED | WONT_FIX | DUPLICATE
+
+# Resolution details (filled when resolved)
+resolution:
+  resolution_evidence: ${RESOLUTION_EVIDENCE}  # Proof of fix (null until resolved)
+  resolved_at: ${RESOLVED_AT}          # ISO 8601 timestamp (null until resolved)
+  resolved_by: ${RESOLVED_BY}          # Who resolved it (null until resolved)
+  commit_sha: ${RESOLUTION_COMMIT}     # Commit that fixed the issue (null until resolved)
+  wont_fix_reason: ${WONT_FIX_REASON}  # Reason if status is WONT_FIX
+  duplicate_of: ${DUPLICATE_OF}        # Finding ID if status is DUPLICATE
+
+# History of status changes
+history: []
+# Example history entry:
+# - action: "created"
+#   timestamp: "2024-01-15T14:00:00Z"
+#   by: "reviewer-001"
+#   details: null
+# - action: "status_change"
+#   timestamp: "2024-01-15T15:00:00Z"
+#   by: "dev-001"
+#   details:
+#     from: "OPEN"
+#     to: "IN_PROGRESS"
+# - action: "resolved"
+#   timestamp: "2024-01-15T16:00:00Z"
+#   by: "dev-001"
+#   details:
+#     commit_sha: "abc123"
+#     evidence: "Fixed timing-safe comparison"
+
+# Blocking status
+blocks_release: ${BLOCKS_RELEASE}      # true | false (based on severity)
+blocks_task_completion: ${BLOCKS_TASK} # true | false
+
+# Re-open tracking (if finding was re-opened)
+reopen_history: []
+# Example reopen entry:
+# - reopened_at: "2024-01-20T10:00:00Z"
+#   reopened_by: "qa-001"
+#   new_evidence: "Regression test failure"
+#   justification: "Issue reappeared after merge"
+#   new_finding_id: null  # If different issue, new FND-xxx created
+
+# VALIDATION RULES:
+# - finding_id must be unique and follow format: FND-NNN
+# - created_at must be valid ISO 8601 timestamp
+# - task_id must reference existing task
+# - review_round must be positive integer
+# - severity must be: CRITICAL | HIGH | MEDIUM | LOW | INFO
+# - category must be: BUG | SECURITY | PERFORMANCE | STYLE | DOCUMENTATION | OTHER
+# - scope.type must be: file_location | general
+# - If scope.type is "file_location", file, line_start, and line_end are required
+# - status must be: OPEN | IN_PROGRESS | RESOLVED | WONT_FIX | DUPLICATE
+# - If status is RESOLVED, resolution fields (resolved_at, resolved_by) are required
+# - If status is WONT_FIX, wont_fix_reason is required
+# - If status is DUPLICATE, duplicate_of must reference existing finding
+# - history[].action must be: created | status_change | resolved | reopened | assigned
+# - blocks_release must be true if severity is CRITICAL or HIGH
+# - blocks_task_completion must be true if severity is CRITICAL or HIGH
+#
+# SEVERITY DEFINITIONS (R11):
+# - CRITICAL: Blocks release, must fix immediately
+# - HIGH: Must fix before task DONE
+# - MEDIUM: Should fix before task DONE, may defer with justification
+# - LOW: Nice to fix, can defer to backlog
+# - INFO: Suggestion only, no action required

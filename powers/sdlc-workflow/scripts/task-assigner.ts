@@ -55,7 +55,7 @@ export type AssignmentState =
 
 /**
  * Task assignment information.
- * Requirements: 3.1, 3.2
+ * Requirements: 3.1, 3.2, R02.3
  */
 export interface Assignment {
   /** Task ID that is assigned */
@@ -70,6 +70,18 @@ export interface Assignment {
   assigned_by: string | null;
   /** Current assignment state */
   state: AssignmentState;
+  /** 
+   * Fencing token for ownership validation (optional).
+   * Present when OwnershipManager is integrated.
+   * Requirements: R02.5, R02.6
+   */
+  fencing_token?: string;
+  /**
+   * Actor type of the assignee (HUMAN or AI_AGENT).
+   * Present when OwnershipManager is integrated.
+   * Requirements: R12.1
+   */
+  actor_type?: 'HUMAN' | 'AI_AGENT';
 }
 
 /**
@@ -144,6 +156,12 @@ export enum AssignmentErrorCode {
   TASK_NOT_ASSIGNED = 1107,
   /** Invalid task data provided */
   INVALID_TASK_DATA = 1108,
+  /** 
+   * Ownership claim failed (from Ownership_Manager).
+   * This typically means the task is already claimed by another owner.
+   * Requirements: R02.3, R02.4
+   */
+  OWNERSHIP_CLAIM_FAILED = 1109,
 }
 
 /**
@@ -304,6 +322,23 @@ export function invalidTaskDataError(taskId: string, details: string): Assignmen
   );
 }
 
+/**
+ * Creates an "ownership claim failed" error.
+ * Requirements: R02.3, R02.4
+ */
+export function ownershipClaimFailedError(
+  taskId: string,
+  developerId: string,
+  details?: string
+): AssignmentError {
+  return createAssignmentError(
+    AssignmentErrorCode.OWNERSHIP_CLAIM_FAILED,
+    `Failed to claim ownership of task '${taskId}' for '${developerId}'${details ? `: ${details}` : ''}`,
+    { task_id: taskId, developer_id: developerId },
+    'The task may already be claimed by another owner. Try again or request a handoff.'
+  );
+}
+
 // =============================================================================
 // Validation Functions
 // =============================================================================
@@ -350,9 +385,11 @@ export function createAssignment(
   taskId: string,
   assignee: string | null,
   roleRequired: Role | null,
-  assignedBy: string | null
+  assignedBy: string | null,
+  fencingToken?: string,
+  actorType?: 'HUMAN' | 'AI_AGENT'
 ): Assignment {
-  return {
+  const assignment: Assignment = {
     taskId,
     assignee,
     role_required: roleRequired,
@@ -360,6 +397,16 @@ export function createAssignment(
     assigned_by: assignedBy,
     state: assignee ? 'ASSIGNED' : (roleRequired ? 'AVAILABLE_FOR_PICKUP' : 'UNASSIGNED'),
   };
+
+  // Add ownership fields if provided
+  if (fencingToken) {
+    assignment.fencing_token = fencingToken;
+  }
+  if (actorType) {
+    assignment.actor_type = actorType;
+  }
+
+  return assignment;
 }
 
 /**
@@ -426,6 +473,26 @@ export interface Task_Assigner {
    * - TASK_NOT_ASSIGNABLE: If the task is in an invalid state
    */
   assignTask(taskId: string, developerId: string): Result<Assignment, AssignmentError>;
+
+  /**
+   * Assigns a task to a developer with ownership claim (async).
+   * This version integrates with OwnershipManager for atomic ownership with fencing tokens.
+   * 
+   * Requirements: R02.3, R02.4, 3.1, 3.3, 3.4, 4.1, 4.3
+   * 
+   * @param taskId - The ID of the task to assign
+   * @param developerId - The ID of the developer to assign the task to
+   * @returns Promise<Result> with Assignment (including fencing_token) on success or AssignmentError on failure
+   * 
+   * Errors:
+   * - TASK_NOT_FOUND: If the task doesn't exist
+   * - DEVELOPER_NOT_FOUND: If the developer isn't registered
+   * - ROLE_MISMATCH: If the developer lacks the required role
+   * - TASK_ALREADY_ASSIGNED: If the task is already assigned
+   * - TASK_NOT_ASSIGNABLE: If the task is in an invalid state
+   * - OWNERSHIP_CLAIM_FAILED: If ownership claim fails (requires OwnershipManager)
+   */
+  assignTaskWithOwnership?(taskId: string, developerId: string): Promise<Result<Assignment, AssignmentError>>;
 
   /**
    * Removes the assignment from a task, making it unassigned.
@@ -642,6 +709,51 @@ export interface TeamManagerForAssigner {
    * @returns Result with the member's roles on success, or error if not found
    */
   getMemberRoles(developerId: string): Role[] | null;
+
+  /**
+   * Gets the actor type of a team member.
+   * Optional - if not implemented, defaults to 'HUMAN'.
+   * @param developerId - The developer ID
+   * @returns 'HUMAN' or 'AI_AGENT', or null if not found
+   */
+  getActorType?(developerId: string): 'HUMAN' | 'AI_AGENT' | null;
+}
+
+// =============================================================================
+// Ownership_Manager Integration Interface
+// =============================================================================
+
+/**
+ * Minimal interface for Ownership_Manager operations needed by Task_Assigner.
+ * This allows TaskAssignerImpl to integrate with Ownership_Manager for atomic
+ * task ownership with fencing tokens.
+ * 
+ * Requirements: R02.3, R02.4
+ */
+export interface OwnershipManagerForAssigner {
+  /**
+   * Claims ownership of a task.
+   * @param taskId - The task to claim
+   * @param ownerId - The ID of the owner claiming the task
+   * @param actorType - Type of actor (HUMAN or AI_AGENT)
+   * @returns Result with fencing token on success, or error on failure
+   */
+  claimTask(
+    taskId: string,
+    ownerId: string,
+    actorType: 'HUMAN' | 'AI_AGENT'
+  ): Promise<{ success: true; value: { fencing_token: string; acquired_at: string } } | { success: false; error: { code: number; message: string } }>;
+
+  /**
+   * Releases ownership of a task.
+   * @param taskId - The task to release
+   * @param fencingToken - The current valid fencing token
+   * @returns Result with void on success, or error on failure
+   */
+  releaseTask?(
+    taskId: string,
+    fencingToken: string
+  ): Promise<{ success: true; value: void } | { success: false; error: { code: number; message: string } }>;
 }
 
 // =============================================================================
@@ -658,6 +770,12 @@ export interface TaskAssignerConfig {
   taskStorage: TaskStorage;
   /** ID of the user making assignments (optional, for audit trail) */
   currentUserId?: string;
+  /** 
+   * Ownership manager instance for atomic ownership claims (optional).
+   * When provided, assignTask will also claim ownership and return a fencing token.
+   * Requirements: R02.3, R02.4
+   */
+  ownershipManager?: OwnershipManagerForAssigner;
 }
 
 /**
@@ -739,6 +857,118 @@ export class TaskAssignerImpl implements Task_Assigner {
     this.config.taskStorage.updateTask(updatedTask);
 
     return ok(assignment);
+  }
+
+  /**
+   * Assigns a task to a developer with ownership claim (async).
+   * This version integrates with OwnershipManager for atomic ownership with fencing tokens.
+   * 
+   * Requirements: R02.3, R02.4, 3.1, 3.3, 3.4, 4.1, 4.3
+   * 
+   * @param taskId - The ID of the task to assign
+   * @param developerId - The ID of the developer to assign the task to
+   * @returns Promise<Result> with Assignment (including fencing_token) on success or AssignmentError on failure
+   */
+  async assignTaskWithOwnership(taskId: string, developerId: string): Promise<Result<Assignment, AssignmentError>> {
+    // Validate input parameters
+    if (!isValidTaskId(taskId)) {
+      return err(invalidTaskDataError(taskId || '', 'Task ID is required and must be a non-empty string'));
+    }
+
+    if (!developerId || typeof developerId !== 'string' || developerId.trim() === '') {
+      return err(developerNotFoundError(developerId || '', taskId));
+    }
+
+    // Validate the assignment is allowed
+    const validationResult = this.validateAssignment(taskId, developerId);
+    if (!validationResult.success) {
+      return err(validationResult.error);
+    }
+
+    // Get the task from storage
+    const task = this.config.taskStorage.getTask(taskId);
+    if (!task) {
+      return err(taskNotFoundError(taskId));
+    }
+
+    // Determine the actor type for the developer
+    const actorType = this.getActorTypeForDeveloper(developerId);
+
+    // If OwnershipManager is configured, claim ownership first
+    let fencingToken: string | undefined;
+    if (this.config.ownershipManager) {
+      const claimResult = await this.config.ownershipManager.claimTask(
+        taskId,
+        developerId,
+        actorType
+      );
+
+      if (!claimResult.success) {
+        // Map ownership error codes to assignment error codes
+        // OwnershipErrorCode.TASK_ALREADY_CLAIMED = 2101
+        if (claimResult.error.code === 2101) {
+          return err(taskAlreadyAssignedError(taskId, developerId));
+        }
+        return err(ownershipClaimFailedError(taskId, developerId, claimResult.error.message));
+      }
+
+      fencingToken = claimResult.value.fencing_token;
+    }
+
+    // Get the previous assignee for history tracking
+    const previousAssignee = task.assignment?.assignee ?? null;
+
+    // Create the new assignment with ownership info
+    // Requirement 4.3: Record assignment timestamp
+    const assignment = createAssignment(
+      taskId,
+      developerId,
+      task.assignment?.role_required ?? null,
+      this.config.currentUserId ?? null,
+      fencingToken,
+      actorType
+    );
+
+    // Create history entry for the assignment change
+    // Requirements: 16.1, 16.2
+    const historyEntry = createHistoryEntry(
+      previousAssignee,
+      developerId,
+      previousAssignee ? 'Reassignment' : 'Initial assignment'
+    );
+
+    // Update the task with new assignment
+    const updatedTask: Task = {
+      ...task,
+      assignment,
+      assignment_history: [...task.assignment_history, historyEntry],
+    };
+
+    // Persist the changes
+    this.config.taskStorage.updateTask(updatedTask);
+
+    return ok(assignment);
+  }
+
+  /**
+   * Determines the actor type for a developer.
+   * Uses TeamManager.getActorType if available, otherwise defaults to 'HUMAN'.
+   * 
+   * Requirements: R12.1
+   * 
+   * @param developerId - The developer ID to get actor type for
+   * @returns 'HUMAN' or 'AI_AGENT'
+   */
+  private getActorTypeForDeveloper(developerId: string): 'HUMAN' | 'AI_AGENT' {
+    // Check if TeamManager provides actor type information
+    if (this.config.teamManager.getActorType) {
+      const actorType = this.config.teamManager.getActorType(developerId);
+      if (actorType) {
+        return actorType;
+      }
+    }
+    // Default to HUMAN if not specified
+    return 'HUMAN';
   }
 
   /**

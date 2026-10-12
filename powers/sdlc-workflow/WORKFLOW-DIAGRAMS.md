@@ -1,6 +1,25 @@
 ﻿# SDLC Workflow Power - Workflow Diagrams
 
-This document provides visual representations of the Multi-Developer Support feature workflows, component interactions, and processes within the SDLC Workflow Power.
+This document provides visual representations of the SDLC Workflow Power features, including Multi-Developer Support and the new Reliability features.
+
+## Table of Contents
+
+1. [Multi-Developer Support Overview](#multi-developer-support-overview)
+2. [Main Workflow Diagram](#1-main-workflow-diagram)
+3. [Component Interaction Diagram](#2-component-interaction-diagram)
+4. [Task State Machine (Enhanced)](#3-task-state-machine-enhanced)
+5. [Ownership State Machine](#4-ownership-state-machine)
+6. [Release State Machine](#5-release-state-machine)
+7. [TDD Phase Machine (Enhanced)](#6-tdd-phase-machine-enhanced)
+8. [Checkpoint Recovery Flow](#7-checkpoint-recovery-flow)
+9. [Evidence Staleness Detection](#8-evidence-staleness-detection)
+10. [Optimistic Concurrency Flow](#9-optimistic-concurrency-flow)
+11. [TDD Cycle Flowchart](#10-tdd-cycle-flowchart)
+12. [Parallel Group Execution](#11-parallel-group-execution)
+13. [Handoff Process](#12-handoff-process)
+14. [Workload Analysis](#13-workload-analysis)
+15. [Dependency Resolution Flow](#14-dependency-resolution-flow)
+16. [Component Summary](#component-summary)
 
 ## Multi-Developer Support Overview
 
@@ -12,6 +31,20 @@ The Multi-Developer Support feature enables coordinated development across multi
 - **Parallel Execution**: Identify and manage tasks that can run concurrently
 - **Workload Balancing**: Analyze and optimize work distribution across the team
 - **Handoff Coordination**: Manage smooth transitions between developers
+
+## Reliability Features Overview
+
+The Reliability features provide enterprise-grade safety and recoverability:
+
+- **State Versioning**: Optimistic concurrency control prevents lost updates
+- **Task Ownership**: Fencing tokens prevent stale writes from old owners
+- **Leases & Heartbeats**: Time-limited ownership for AI agents with automatic expiry
+- **Checkpoints**: Automatic and manual recovery points
+- **Evidence Staleness**: Automatic detection of outdated verification
+- **Definition of Ready**: Validation before task can start
+- **Finding Register**: Formal tracking of review findings
+- **Release Lifecycle**: Full deployment workflow with rollback support
+- **Audit Logging**: Complete operation trail
 
 ---
 
@@ -78,108 +111,584 @@ flowchart TD
 
 ## 2. Component Interaction Diagram
 
-How the six core components interact with each other:
+How all components (existing and new) interact with each other:
 
 ```mermaid
 flowchart TB
-    subgraph Core_Components["Core Components"]
+    subgraph Core_Components["Core Components (Existing)"]
         TM[Team Manager]
         TA[Task Assigner]
         DR[Dependency Resolver]
         PGM[Parallel Group Manager]
         WA[Workload Analyzer]
         HC[Handoff Coordinator]
+        TV[Team Validator]
     end
 
-    subgraph Data_Flow["Data Flow"]
-        TEAM[(Team Data)]
-        TASKS[(Task Data)]
-        STATE[(Project State)]
+    subgraph Reliability_Components["Reliability Components (New)"]
+        SC[State Controller]
+        OM[Ownership Manager]
+        CM[Checkpoint Manager]
+        EM[Evidence Manager]
+        DOR[DoR Validator]
+        FR[Finding Register]
+        AL[Audit Logger]
     end
 
-    %% Team Manager connections
-    TM -->|Provides team info| TA
-    TM -->|Member availability| WA
-    TM -->|Developer context| HC
-    TEAM --> TM
+    subgraph Data_Flow["Data Storage"]
+        PS[(project-state.yaml)]
+        CP[(checkpoints/)]
+        EV[(evidence/)]
+        FND[(findings/)]
+        AUDIT[(audit.log)]
+    end
 
-    %% Task Assigner connections
-    TA -->|Assignment requests| DR
-    TA -->|Task assignments| PGM
-    TA -->|Workload updates| WA
-    TASKS --> TA
+    %% State Controller is central
+    SC -->|Version control| PS
+    SC -->|Log operations| AL
+    
+    %% Ownership Manager
+    OM -->|State updates| SC
+    OM -->|Log claims| AL
+    
+    %% Checkpoint Manager
+    CM -->|Read state| SC
+    CM -->|Store checkpoints| CP
+    
+    %% Evidence Manager
+    EM -->|Store evidence| EV
+    EM -->|State updates| SC
+    
+    %% DoR Validator
+    DOR -->|Read state| SC
+    DOR -->|Check deps| DR
+    
+    %% Finding Register
+    FR -->|Store findings| FND
+    FR -->|State updates| SC
 
-    %% Dependency Resolver connections
-    DR -->|Dependency graph| PGM
-    DR -->|Blocked tasks| WA
-    DR -->|Ready tasks| TA
+    %% Existing components use new reliability
+    TA -->|Claim ownership| OM
+    HC -->|Transfer ownership| OM
+    HC -->|Create checkpoint| CM
+    TV -->|Check DoR| DOR
 
-    %% Parallel Group Manager connections
-    PGM -->|Parallel groups| TA
-    PGM -->|Execution order| HC
-    PGM -->|Group status| WA
+    %% Audit logging
+    AL -->|Write| AUDIT
 
-    %% Workload Analyzer connections
-    WA -->|Rebalance suggestions| TA
-    WA -->|Bottleneck alerts| HC
-    WA -->|Metrics| STATE
-
-    %% Handoff Coordinator connections
-    HC -->|Handoff packages| TM
-    HC -->|Context transfer| TA
-    HC -->|Status updates| STATE
-
-    STATE --> DR
-    STATE --> PGM
-
-    style TM fill:#bbdefb
-    style TA fill:#c8e6c9
-    style DR fill:#fff9c4
-    style PGM fill:#f8bbd9
-    style WA fill:#d1c4e9
-    style HC fill:#ffccbc
+    style SC fill:#e8f5e9
+    style OM fill:#e8f5e9
+    style CM fill:#e8f5e9
+    style EM fill:#e8f5e9
+    style DOR fill:#e8f5e9
+    style FR fill:#e8f5e9
+    style AL fill:#e8f5e9
 ```
 
 ---
 
-## 3. Task Lifecycle State Diagram
+## 3. Task State Machine (Enhanced)
 
-The states a task goes through during development with TDD phases:
+The complete task lifecycle with all states and orthogonal attributes:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending: Task Created
+    [*] --> PENDING: Task Created
 
-    Pending --> Assigned: Developer Assigned
-    Assigned --> Blocked: Dependencies Unmet
-    Blocked --> Assigned: Dependencies Resolved
+    PENDING --> READY: DoR Met
+    PENDING --> PENDING: DoR Check Failed
+    
+    READY --> ASSIGNED: Assignee Set
+    READY --> BLOCKED_READY: Blocker Added
+    
+    ASSIGNED --> IN_PROGRESS: Work Started\n[DoR Validated]
+    ASSIGNED --> BLOCKED_ASSIGNED: Blocker Added
+    ASSIGNED --> READY: Unassigned
+    
+    IN_PROGRESS --> REVIEW: Implementation Complete
+    IN_PROGRESS --> BLOCKED_IN_PROGRESS: Blocker Added
+    IN_PROGRESS --> HANDOFF_PENDING: Handoff Initiated
+    
+    REVIEW --> CHANGES_REQUESTED: Changes Requested
+    REVIEW --> READY_TO_MERGE: Approved
+    REVIEW --> BLOCKED_REVIEW: Blocker Added
+    
+    CHANGES_REQUESTED --> IN_PROGRESS: Addressing Changes
+    
+    READY_TO_MERGE --> INTEGRATED: Merged
+    READY_TO_MERGE --> CHANGES_REQUESTED: Merge Failed
+    
+    INTEGRATED --> DONE: Post-merge Verified\n[DoD Met]
+    INTEGRATED --> IN_PROGRESS: Verification Failed
+    
+    BLOCKED_READY --> READY: Blocker Resolved
+    BLOCKED_ASSIGNED --> ASSIGNED: Blocker Resolved
+    BLOCKED_IN_PROGRESS --> IN_PROGRESS: Blocker Resolved
+    BLOCKED_REVIEW --> REVIEW: Blocker Resolved
+    
+    HANDOFF_PENDING --> IN_PROGRESS: Handoff Complete
+    HANDOFF_PENDING --> IN_PROGRESS: Handoff Cancelled
+    
+    DONE --> IN_PROGRESS: Reopened\n[With Justification]
+    
+    state CANCELLED
+    state SUPERSEDED
+    
+    PENDING --> CANCELLED: Explicit Cancel
+    READY --> CANCELLED: Explicit Cancel
+    ASSIGNED --> CANCELLED: Explicit Cancel
+    IN_PROGRESS --> CANCELLED: Explicit Cancel
+    REVIEW --> CANCELLED: Explicit Cancel
+    READY_TO_MERGE --> CANCELLED: Explicit Cancel
+    
+    PENDING --> SUPERSEDED: Replaced
+    READY --> SUPERSEDED: Replaced
+    ASSIGNED --> SUPERSEDED: Replaced
 
-    Assigned --> InProgress: Work Started
+    note right of PENDING
+        Task created but
+        DoR not yet validated
+    end note
 
-    state InProgress {
-        [*] --> RED
-        RED --> GREEN: Test Passes
-        GREEN --> REFACTOR: Code Clean
-        REFACTOR --> RED: New Test Needed
-        REFACTOR --> [*]: Cycle Complete
-    }
-
-    InProgress --> Review: Implementation Done
-    Review --> InProgress: Changes Requested
-    Review --> Handoff: Needs Handoff
-    Handoff --> InProgress: Context Transferred
-    Review --> Complete: Approved
-
-    Complete --> [*]
-
-    note right of RED: Write failing test
-    note right of GREEN: Make test pass
-    note right of REFACTOR: Improve code quality
+    note right of DONE
+        Reopening requires:
+        - Justification (non-empty)
+        - New evidence
+    end note
 ```
+
+### Orthogonal Attributes
+
+These attributes can be applied independently of the main state:
+
+| Attribute | Description | Applies To |
+|-----------|-------------|------------|
+| `blocked: true/false` | Task has active blockers | PENDING, READY, ASSIGNED, IN_PROGRESS, REVIEW |
+| `blocked_reason` | Why task is blocked | When blocked=true |
+| `blocker_refs` | BLOCKER-xxx references | When blocked=true |
+| `handoff_pending: true/false` | Handoff in progress | IN_PROGRESS |
+| `handoff_id` | HO-xxx reference | When handoff_pending=true |
 
 ---
 
-## 4. TDD Cycle Flowchart
+## 4. Ownership State Machine
+
+Ownership lifecycle for AI agents with lease management:
+
+```mermaid
+stateDiagram-v2
+    [*] --> UNCLAIMED: Task Available
+    
+    UNCLAIMED --> CLAIMED: Claim Success\n[Fencing Token Issued]
+    UNCLAIMED --> UNCLAIMED: Claim Failed\n[Already Claimed]
+    
+    CLAIMED --> ACTIVE: Work Started
+    
+    ACTIVE --> ACTIVE: Heartbeat Received
+    ACTIVE --> LEASE_WARNING: Heartbeat Delayed\n[> heartbeat_interval]
+    
+    LEASE_WARNING --> ACTIVE: Heartbeat Received
+    LEASE_WARNING --> LEASE_EXPIRED: No Heartbeat\n[> 2x heartbeat_interval]
+    
+    LEASE_EXPIRED --> ABANDONED: Timeout
+    
+    ABANDONED --> UNCLAIMED: Reclaim Allowed
+    
+    ACTIVE --> RELEASED: Explicit Release
+    ACTIVE --> TRANSFERRED: Handoff Complete
+    
+    RELEASED --> UNCLAIMED: Available Again
+    TRANSFERRED --> [*]: New Owner Active
+    
+    note right of ACTIVE
+        Fencing token valid
+        Operations allowed
+    end note
+    
+    note right of LEASE_EXPIRED
+        Fencing token invalidated
+        Operations rejected
+    end note
+
+    note right of CLAIMED
+        For HUMAN actors:
+        No lease expiry
+        No heartbeat required
+    end note
+```
+
+### Ownership Differences: Human vs AI Agent
+
+| Aspect | Human | AI Agent |
+|--------|-------|----------|
+| Lease Duration | Unlimited | Configurable (default: 1 hour) |
+| Heartbeat | Not required | Required every 5 minutes |
+| Auto-expiry | No | Yes, after 2x heartbeat interval |
+| Inactivity | Warning only | Lease expiration |
+| Fencing Token | Yes | Yes |
+
+---
+
+## 5. Release State Machine
+
+Complete release lifecycle from planning to production:
+
+```mermaid
+stateDiagram-v2
+    [*] --> NOT_STARTED
+    
+    NOT_STARTED --> PLANNING: Release Planned
+    
+    PLANNING --> READINESS_CHECK: All Tasks Done
+    
+    READINESS_CHECK --> READINESS_FAILED: Gates Failed
+    READINESS_CHECK --> STAGING: Gates Passed
+    
+    READINESS_FAILED --> READINESS_CHECK: Issues Fixed
+    READINESS_FAILED --> CANCELLED: Release Cancelled
+    
+    STAGING --> STAGING_FAILED: Deploy/Test Failed
+    STAGING --> AWAITING_APPROVAL: Staging Verified
+    
+    STAGING_FAILED --> STAGING: Issues Fixed
+    STAGING_FAILED --> CANCELLED: Release Cancelled
+    
+    AWAITING_APPROVAL --> PRODUCTION: Human Approved
+    AWAITING_APPROVAL --> STAGING: Approval Denied
+    
+    PRODUCTION --> PRODUCTION_FAILED: Deploy Failed
+    PRODUCTION --> MONITORING: Deploy Success
+    
+    PRODUCTION_FAILED --> ROLLED_BACK: Rollback Executed
+    PRODUCTION_FAILED --> PRODUCTION: Retry Deploy
+    
+    MONITORING --> MONITORING: Observation Period
+    MONITORING --> ROLLED_BACK: Issue Detected
+    MONITORING --> CLOSED: Observation Complete\n[No Issues]
+    
+    ROLLED_BACK --> STAGING: Fix and Retry
+    ROLLED_BACK --> CANCELLED: Release Cancelled
+    
+    CLOSED --> [*]
+    CANCELLED --> [*]
+
+    note right of AWAITING_APPROVAL
+        Human gate required
+        Approver must be authorized
+    end note
+
+    note right of MONITORING
+        Configurable observation period
+        Auto-close if no issues
+    end note
+
+    note right of ROLLED_BACK
+        Previous version restored
+        Rollback evidence recorded
+    end note
+```
+
+### Release Stages
+
+| Stage | Description | Requirements |
+|-------|-------------|--------------|
+| NOT_STARTED | Initial state | - |
+| PLANNING | Release being planned | Version defined |
+| READINESS_CHECK | Quality gates evaluation | All tasks DONE |
+| STAGING | Deployed to staging | Readiness passed |
+| AWAITING_APPROVAL | Waiting for human approval | Staging verified |
+| PRODUCTION | Deployed to production | Human approved |
+| MONITORING | Post-deploy observation | Production verified |
+| CLOSED | Release complete | Observation passed |
+| CANCELLED | Release cancelled | Explicit cancel |
+| ROLLED_BACK | Reverted to previous | Rollback executed |
+
+---
+
+## 6. TDD Phase Machine (Enhanced)
+
+TDD cycle with enhanced error handling and evidence types:
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: Task Started
+    
+    PENDING --> RED: Start TDD Cycle
+    PENDING --> NOT_APPLICABLE: Mark TDD N/A\n[With Reason]
+    
+    RED --> RED_INVALID: Test Passes Unexpectedly
+    RED --> GREEN: Test Fails Correctly\n[BEHAVIOR_MISSING]
+    RED --> RED_ERROR: Test Error\n[ENVIRONMENT/TEST_ERROR]
+    
+    RED_INVALID --> RED: Test Fixed
+    RED_ERROR --> RED: Error Fixed
+    
+    GREEN --> GREEN: Test Still Fails
+    GREEN --> REFACTOR: All Tests Pass
+    
+    REFACTOR --> REFACTOR: Tests Still Pass
+    REFACTOR --> REGRESSION: Test Fails After Refactor
+    REFACTOR --> VERIFY: Refactor Complete
+    
+    REGRESSION --> REFACTOR: Regression Fixed
+    REGRESSION --> GREEN: Rollback to Pre-refactor
+    
+    VERIFY --> VERIFY_FAILED: Verification Failed
+    VERIFY --> COMPLETE: All Checks Pass
+    
+    VERIFY_FAILED --> GREEN: Fix Required
+    VERIFY_FAILED --> RED: New Test Needed
+    
+    COMPLETE --> RED: Next Test Cycle
+    COMPLETE --> [*]: Task Done
+    
+    NOT_APPLICABLE --> VERIFY: Alternative Verification
+    NOT_APPLICABLE --> [*]: Manual Approval
+
+    note right of RED
+        Valid RED requires:
+        - Test runs (not skipped)
+        - Fails due to BEHAVIOR_MISSING
+        - Not TEST_ERROR or ENV_ERROR
+    end note
+
+    note right of GREEN
+        Valid GREEN requires:
+        - Same test now passes
+        - No other tests regressed
+    end note
+```
+
+### Test Error Categories
+
+| Category | Description | Action |
+|----------|-------------|--------|
+| BEHAVIOR_MISSING | Expected failure, behavior not implemented | Valid RED, proceed to GREEN |
+| TEST_ERROR | Test code has bugs (syntax, assertion error) | Fix test before proceeding |
+| ENVIRONMENT_ERROR | Runtime, connection, config issue | Fix environment |
+| SKIPPED | Test not executed | Invalid evidence, ensure test runs |
+
+---
+
+## 7. Checkpoint Recovery Flow
+
+How checkpoints are created and used for recovery:
+
+```mermaid
+flowchart TD
+    subgraph Creation["Checkpoint Creation"]
+        T1[State Transition] -->|Auto| CREATE
+        T2[TDD Phase Change] -->|Auto| CREATE
+        T3[Evidence Created] -->|Auto| CREATE
+        T4[Handoff Event] -->|Auto| CREATE
+        T5[Periodic Timer] -->|Auto| CREATE
+        T6[User Request] -->|Manual| CREATE
+        
+        CREATE[Create Checkpoint] --> CAPTURE
+        CAPTURE[Capture Snapshot]
+        
+        subgraph Snapshot["Snapshot Contents"]
+            S1[state_version]
+            S2[task_id & status]
+            S3[owner_id & fencing_token]
+            S4[tdd_phase]
+            S5[branch_name & commit_sha]
+            S6[uncommitted_changes]
+            S7[evidence_refs]
+            S8[blockers]
+            S9[next_action]
+        end
+        
+        CAPTURE --> S1 & S2 & S3 & S4 & S5 & S6 & S7 & S8 & S9
+        S1 & S2 & S3 & S4 & S5 & S6 & S7 & S8 & S9 --> STORE
+        STORE[Store to checkpoints/]
+    end
+    
+    subgraph Recovery["Checkpoint Recovery"]
+        R1[Resume Request] --> LIST
+        LIST[List Checkpoints] --> SELECT
+        SELECT[Select Checkpoint] --> VALIDATE
+        
+        VALIDATE{Validate Against\nCurrent State}
+        
+        VALIDATE -->|Branch exists?| CHECK_BRANCH
+        VALIDATE -->|Commit reachable?| CHECK_COMMIT
+        VALIDATE -->|State version?| CHECK_VERSION
+        
+        CHECK_BRANCH -->|No| DISCREP[Add Discrepancy]
+        CHECK_COMMIT -->|No| DISCREP
+        CHECK_VERSION -->|Newer exists| DISCREP
+        
+        DISCREP --> STRATEGY
+        
+        CHECK_BRANCH -->|Yes| PREPARE
+        CHECK_COMMIT -->|Yes| PREPARE
+        CHECK_VERSION -->|Match| PREPARE
+        
+        PREPARE[Prepare Recovery Plan]
+        STRATEGY{Determine Strategy}
+        
+        STRATEGY -->|Compatible| AUTO[AUTO_MERGE]
+        STRATEGY -->|Conflicts| PROMPT[PROMPT_USER]
+        STRATEGY -->|Too stale| REJECT[REJECT]
+        
+        AUTO --> EXECUTE
+        PROMPT --> USER_CONFIRM{User Confirms?}
+        USER_CONFIRM -->|Yes| EXECUTE
+        USER_CONFIRM -->|No| ABORT[Abort Recovery]
+        REJECT --> ABORT
+        
+        EXECUTE[Execute Recovery]
+        EXECUTE --> RESTORED[State Restored]
+    end
+
+    style Creation fill:#e3f2fd
+    style Recovery fill:#e8f5e9
+    style Snapshot fill:#fff8e1
+```
+
+### Recovery Strategies
+
+| Strategy | Condition | Behavior |
+|----------|-----------|----------|
+| AUTO_MERGE | Changes are compatible | Automatically reconcile differences |
+| PROMPT_USER | Conflicts or ambiguous | User decides how to proceed |
+| REJECT | Checkpoint too stale | Require fresh start or different checkpoint |
+
+---
+
+## 8. Evidence Staleness Detection
+
+How evidence freshness is tracked and validated:
+
+```mermaid
+flowchart TD
+    subgraph EvidenceCreation["Evidence Creation"]
+        RUN[Run Verification] --> RECORD
+        RECORD[Record Evidence]
+        RECORD --> CAPTURE_GIT[Capture Git State]
+        RECORD --> CAPTURE_FILES[Capture File Hashes]
+        
+        CAPTURE_GIT --> GIT_STATE[commit_sha\nbranch\nworking_tree_dirty]
+        CAPTURE_FILES --> FILE_HASHES[related_files:\n- path\n- hash_at_verification]
+        
+        GIT_STATE --> STORE_EVD[Store Evidence]
+        FILE_HASHES --> STORE_EVD
+    end
+    
+    subgraph StalenessCheck["Staleness Check"]
+        CHECK[Check Staleness] --> GET_EVD[Get Evidence Record]
+        GET_EVD --> COMPARE
+        
+        COMPARE[Compare to Current State]
+        
+        COMPARE --> CHECK_SHA{commit_sha ==\ncurrent HEAD?}
+        CHECK_SHA -->|No| STALE_SHA[Stale: COMMIT_CHANGED]
+        CHECK_SHA -->|Yes| CHECK_FILES
+        
+        CHECK_FILES{File hashes\nmatch?}
+        CHECK_FILES -->|No| STALE_FILE[Stale: FILE_MODIFIED]
+        CHECK_FILES -->|Yes| FRESH
+        
+        STALE_SHA --> MARK_STALE[Mark Evidence Stale]
+        STALE_FILE --> MARK_STALE
+        
+        FRESH[Evidence Fresh ✓]
+        
+        MARK_STALE --> UPDATE[Update Evidence:\nstale: true\nstale_reason: ...\nrequires_revalidation: true]
+    end
+    
+    subgraph Impact["Impact on Workflow"]
+        UPDATE --> BLOCK_DONE[Block DONE Transition]
+        BLOCK_DONE --> REVALIDATE[Require Revalidation]
+        REVALIDATE --> RUN
+    end
+
+    style EvidenceCreation fill:#e3f2fd
+    style StalenessCheck fill:#fff3e0
+    style Impact fill:#ffcdd2
+```
+
+### Staleness Reasons
+
+| Reason | Description | Resolution |
+|--------|-------------|------------|
+| COMMIT_CHANGED | Current commit differs from evidence commit | Re-run verification |
+| FILE_MODIFIED | Related files changed after verification | Re-run verification |
+| CONFIG_CHANGED | Test configuration changed | Re-run verification |
+
+---
+
+## 9. Optimistic Concurrency Flow
+
+How state updates are protected against concurrent modifications:
+
+```mermaid
+sequenceDiagram
+    participant C1 as Client 1
+    participant C2 as Client 2
+    participant SC as State Controller
+    participant FS as File System
+    participant AL as Audit Logger
+    
+    Note over C1,C2: Both clients read state simultaneously
+    
+    C1->>SC: readState()
+    SC->>FS: Read project-state.yaml
+    FS-->>SC: {state, version: 42}
+    SC-->>C1: {state, version: 42}
+    
+    C2->>SC: readState()
+    SC->>FS: Read project-state.yaml
+    FS-->>SC: {state, version: 42}
+    SC-->>C2: {state, version: 42}
+    
+    Note over C1: Client 1 makes changes
+    C1->>SC: writeState(newState, expectedVersion: 42)
+    SC->>FS: Check current version
+    FS-->>SC: version: 42 ✓
+    SC->>FS: Write {state, version: 43}
+    SC->>AL: Log operation
+    SC-->>C1: Success {newVersion: 43}
+    
+    Note over C2: Client 2 tries same operation
+    C2->>SC: writeState(newState, expectedVersion: 42)
+    SC->>FS: Check current version
+    FS-->>SC: version: 43 ✗
+    SC-->>C2: VERSION_CONFLICT Error
+    
+    Note over C2: Client 2 retries with fresh read
+    C2->>SC: readState()
+    SC-->>C2: {state, version: 43}
+    C2->>SC: writeState(newState, expectedVersion: 43)
+    SC->>FS: Check current version
+    FS-->>SC: version: 43 ✓
+    SC->>FS: Write {state, version: 44}
+    SC->>AL: Log operation
+    SC-->>C2: Success {newVersion: 44}
+```
+
+### Retry with Exponential Backoff
+
+```mermaid
+flowchart TD
+    START[Start Update] --> READ[Read State + Version]
+    READ --> MODIFY[Modify State]
+    MODIFY --> WRITE{Write with\nExpected Version}
+    
+    WRITE -->|Success| DONE[Done ✓]
+    WRITE -->|VERSION_CONFLICT| RETRY_CHECK{Retries < Max?}
+    
+    RETRY_CHECK -->|Yes| BACKOFF[Exponential Backoff\n2^retry * 100ms]
+    BACKOFF --> READ
+    
+    RETRY_CHECK -->|No| FAIL[MAX_RETRIES_EXCEEDED]
+
+    style DONE fill:#c8e6c9
+    style FAIL fill:#ffcdd2
+```
+
+---
 
 Detailed view of the Test-Driven Development cycle:
 
@@ -224,7 +733,7 @@ flowchart TD
 
 ---
 
-## 5. Parallel Group Execution - Gantt Chart Example
+## 11. Parallel Group Execution
 
 Visualization of how tasks execute in parallel groups:
 
@@ -255,26 +764,30 @@ gantt
 
 ---
 
-## 6. Handoff Process Sequence Diagram
+## 12. Handoff Process
 
-Communication flow during developer handoff:
+Communication flow during developer handoff (enhanced with ownership transfer):
 
 ```mermaid
 sequenceDiagram
     participant OD as Original Developer
     participant HC as Handoff Coordinator
+    participant OM as Ownership Manager
+    participant CM as Checkpoint Manager
     participant TM as Team Manager
     participant ND as New Developer
-    participant TA as Task Assigner
+    participant AL as Audit Logger
 
     OD->>HC: Request Handoff
+    HC->>CM: Create Checkpoint
+    CM-->>HC: Checkpoint Created
     HC->>HC: Validate Handoff Eligibility
     
     alt Handoff Approved
         HC->>OD: Request Context Package
         OD->>HC: Submit Handoff Package
         
-        Note over HC: Package Contains:<br/>- Task State<br/>- Current Progress<br/>- Blockers<br/>- Notes
+        Note over HC: Package Contains:<br/>- Task State<br/>- Current Progress<br/>- TDD Phase<br/>- Evidence Refs<br/>- Blockers<br/>- Notes
         
         HC->>TM: Query Available Developers
         TM->>HC: Return Developer List
@@ -283,10 +796,14 @@ sequenceDiagram
         HC->>ND: Propose Handoff
         ND->>HC: Accept Handoff
         
-        HC->>TA: Update Assignment
-        TA->>TA: Transfer Task Ownership
+        HC->>OM: Transfer Ownership
+        OM->>OM: Invalidate Old Fencing Token
+        OM->>OM: Generate New Fencing Token
+        OM-->>HC: Ownership Transferred
         
-        HC->>ND: Deliver Context Package
+        HC->>AL: Log Handoff Complete
+        
+        HC->>ND: Deliver Context Package + New Token
         ND->>HC: Acknowledge Receipt
         
         HC->>OD: Confirm Handoff Complete
@@ -298,7 +815,7 @@ sequenceDiagram
 
 ---
 
-## 7. Workload Analysis Flowchart
+## 13. Workload Analysis
 
 How the Workload Analyzer evaluates and balances work:
 
@@ -351,7 +868,7 @@ flowchart TD
 
 ---
 
-## 8. Dependency Resolution Flow
+## 14. Dependency Resolution Flow
 
 How dependencies are tracked and resolved:
 
@@ -405,7 +922,7 @@ flowchart TD
 
 ---
 
-## 9. Quick Reference Commands
+## 15. Quick Reference Commands
 
 | Command | Description | Component |
 |---------|-------------|-----------|
@@ -414,6 +931,9 @@ flowchart TD
 | `team:status` | View team overview | Team Manager |
 | `task:assign <task> <dev>` | Manually assign task | Task Assigner |
 | `task:auto-assign` | Auto-assign all pending tasks | Task Assigner |
+| `task:claim <task>` | Claim ownership with fencing token | Ownership Manager |
+| `task:release` | Release task ownership | Ownership Manager |
+| `task:heartbeat` | Record AI agent heartbeat | Ownership Manager |
 | `dep:check <task>` | Check task dependencies | Dependency Resolver |
 | `dep:graph` | Display dependency graph | Dependency Resolver |
 | `parallel:groups` | Show parallel execution groups | Parallel Group Manager |
@@ -422,10 +942,24 @@ flowchart TD
 | `workload:rebalance` | Suggest rebalancing | Workload Analyzer |
 | `handoff:request <task>` | Request task handoff | Handoff Coordinator |
 | `handoff:status` | View pending handoffs | Handoff Coordinator |
+| `checkpoint:create` | Create manual checkpoint | Checkpoint Manager |
+| `checkpoint:list` | List available checkpoints | Checkpoint Manager |
+| `checkpoint:recover <id>` | Prepare recovery plan | Checkpoint Manager |
+| `evidence:check <id>` | Check evidence staleness | Evidence Manager |
+| `evidence:list <task>` | List evidence for task | Evidence Manager |
+| `release:plan <version>` | Plan a new release | Release Manager |
+| `release:check` | Run readiness check | Release Manager |
+| `release:stage` | Deploy to staging | Release Manager |
+| `release:approve` | Record production approval | Release Manager |
+| `release:deploy` | Deploy to production | Release Manager |
+| `release:rollback` | Rollback release | Release Manager |
+| `finding:create` | Create review finding | Finding Register |
+| `finding:update <id>` | Update finding status | Finding Register |
+| `finding:list` | List findings | Finding Register |
 
 ---
 
-## 10. Bottleneck Detection Rules
+## 16. Bottleneck Detection Rules
 
 | Rule | Threshold | Action | Priority |
 |------|-----------|--------|----------|
@@ -437,6 +971,105 @@ flowchart TD
 | Stale Task | No progress > 2 days | Check for blockers | High |
 | Handoff Pending | > 24 hours unacknowledged | Escalate handoff | Medium |
 | Skill Mismatch | Task complexity > dev experience | Suggest pair programming | Low |
+| Expired Lease | AI agent lease timeout | Mark task abandoned | High |
+| Stale Evidence | Evidence older than HEAD | Block task completion | High |
+| Unresolved Findings | CRITICAL/HIGH open | Block release | Critical |
+
+---
+
+## 17. Definition of Ready Flow
+
+How Definition of Ready is validated before task can start:
+
+```mermaid
+flowchart TD
+    START[Task Transition to IN_PROGRESS] --> CHECK_DOR[Validate DoR]
+    
+    subgraph DoR_Conditions["DoR Conditions"]
+        C1{Acceptance Criteria\nDefined?}
+        C2{Blocking Dependencies\nComplete?}
+        C3{Required Decisions\nResolved?}
+        C4{Assignee Has\nRequired Role?}
+        C5{No Active\nBlockers?}
+    end
+    
+    CHECK_DOR --> C1
+    C1 -->|No| FAIL1[AC not defined]
+    C1 -->|Yes| C2
+    
+    C2 -->|No| FAIL2[Dependencies not met]
+    C2 -->|Yes| C3
+    
+    C3 -->|No| FAIL3[Decisions pending]
+    C3 -->|Yes| C4
+    
+    C4 -->|No| FAIL4[Role mismatch]
+    C4 -->|Yes| C5
+    
+    C5 -->|No| FAIL5[Active blockers exist]
+    C5 -->|Yes| PASS[DoR Passed ✓]
+    
+    FAIL1 & FAIL2 & FAIL3 & FAIL4 & FAIL5 --> REJECT[Reject Transition]
+    REJECT --> REASON[Return failure reason]
+    
+    PASS --> RECORD[Record DoR Check]
+    RECORD --> PROCEED[Allow Transition]
+
+    style PASS fill:#c8e6c9
+    style REJECT fill:#ffcdd2
+```
+
+---
+
+## 18. Finding Lifecycle
+
+How review findings are tracked and resolved:
+
+```mermaid
+stateDiagram-v2
+    [*] --> OPEN: Finding Created
+    
+    OPEN --> IN_PROGRESS: Developer Starts Fix
+    
+    IN_PROGRESS --> RESOLVED: Fix Complete\n[With Evidence]
+    IN_PROGRESS --> WONT_FIX: Decided Not to Fix\n[With Justification]
+    IN_PROGRESS --> OPEN: Fix Blocked
+    
+    RESOLVED --> [*]: Verified
+    WONT_FIX --> [*]: Accepted
+    
+    RESOLVED --> OPEN: Reopened\n[New Evidence]
+    WONT_FIX --> OPEN: Reopened\n[Policy Change]
+    
+    OPEN --> DUPLICATE: Duplicate of Other\n[Link to Original]
+    DUPLICATE --> [*]
+
+    note right of OPEN
+        Severities:
+        CRITICAL - Blocks release
+        HIGH - Blocks task DONE
+        MEDIUM - Should fix
+        LOW - Nice to have
+        INFO - Suggestion only
+    end note
+
+    note right of RESOLVED
+        Resolution requires:
+        - Evidence of fix
+        - Commit SHA
+        - Resolved timestamp
+    end note
+```
+
+### Finding Severity Impact
+
+| Severity | Blocks Task DONE | Blocks Release | Required Response |
+|----------|------------------|----------------|-------------------|
+| CRITICAL | Yes | Yes | Immediate fix |
+| HIGH | Yes | Yes | Fix before done |
+| MEDIUM | With justification | No | Should fix |
+| LOW | No | No | Can defer |
+| INFO | No | No | No action required |
 
 ---
 
@@ -445,36 +1078,71 @@ flowchart TD
 ```mermaid
 mindmap
     root((SDLC Workflow))
-        Team Manager
-            Add/Remove Members
-            Role Assignment
-            Availability Tracking
-            Skill Management
-        Task Assigner
-            Auto Assignment
-            Manual Override
-            Skill Matching
-            Load Balancing
-        Dependency Resolver
-            Graph Building
-            Cycle Detection
-            Order Calculation
-            Blocking Analysis
-        Parallel Group Manager
-            Group Identification
-            Execution Ordering
-            Progress Tracking
-            Optimization
-        Workload Analyzer
-            Metric Calculation
-            Bottleneck Detection
-            Rebalance Suggestions
-            Health Reporting
-        Handoff Coordinator
-            Context Packaging
-            Transfer Management
-            Validation
-            Status Tracking
+        Existing_Components((Existing))
+            Team Manager
+                Add/Remove Members
+                Role Assignment
+                Availability Tracking
+                Skill Management
+            Task Assigner
+                Auto Assignment
+                Manual Override
+                Skill Matching
+                Load Balancing
+            Dependency Resolver
+                Graph Building
+                Cycle Detection
+                Order Calculation
+                Blocking Analysis
+            Parallel Group Manager
+                Group Identification
+                Execution Ordering
+                Progress Tracking
+                Optimization
+            Workload Analyzer
+                Metric Calculation
+                Bottleneck Detection
+                Rebalance Suggestions
+                Health Reporting
+            Handoff Coordinator
+                Context Packaging
+                Transfer Management
+                Validation
+                Status Tracking
+        Reliability_Components((New))
+            State Controller
+                Version Control
+                Optimistic Concurrency
+                Atomic Updates
+                Consistency Validation
+            Ownership Manager
+                Fencing Tokens
+                Lease Management
+                Heartbeat Tracking
+                Ownership Transfer
+            Checkpoint Manager
+                Auto Checkpoints
+                Manual Checkpoints
+                Validation
+                Recovery Planning
+            Evidence Manager
+                Evidence Creation
+                Staleness Detection
+                Quality Gates
+                TDD Validation
+            DoR Validator
+                Condition Checking
+                Revalidation
+                Blocking Detection
+            Finding Register
+                Finding Creation
+                Status Tracking
+                Severity Management
+                Release Blocking
+            Audit Logger
+                Operation Logging
+                Correlation IDs
+                Change Tracking
 ```
 
 ---

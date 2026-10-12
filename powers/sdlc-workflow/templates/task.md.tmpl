@@ -20,6 +20,94 @@
 | Assigned At | ${ASSIGNED_AT} |
 | Assigned By | ${ASSIGNED_BY} |
 
+## Ownership
+
+<!--
+ownership:
+  fencing_token: ""          # UUID generated on claim (required when owned)
+  acquired_at: ""            # ISO 8601 timestamp (required when owned)
+  actor_type: ""             # HUMAN | AI_AGENT (required)
+  lease_config:
+    duration_seconds: null   # null for HUMAN, positive integer for AI_AGENT
+    heartbeat_interval_seconds: null  # only for AI_AGENT
+  last_heartbeat_at: null    # only for AI_AGENT
+  lease_history: []          # History of ownership changes
+-->
+
+| Field | Value |
+|-------|-------|
+| Fencing Token | ${FENCING_TOKEN} |
+| Acquired At | ${OWNERSHIP_ACQUIRED_AT} |
+| Actor Type | ${ACTOR_TYPE} |
+| Lease Duration | ${LEASE_DURATION} |
+| Last Heartbeat | ${LAST_HEARTBEAT} |
+
+### Lease History
+
+<!--
+Example lease history entry:
+  - token: "previous-token-uuid"
+    owner: "dev-002"
+    acquired_at: "2024-01-15T08:00:00Z"
+    released_at: "2024-01-15T09:30:00Z"
+    release_reason: "handoff"
+-->
+
+| Token | Owner | Acquired | Released | Reason |
+|-------|-------|----------|----------|--------|
+| - | - | - | - | - |
+
+## Definition of Ready
+
+<!--
+definition_of_ready:
+  passed: true | false
+  last_checked_at: ""        # ISO 8601 timestamp
+  conditions:
+    - id: "dor-ac-defined"
+      description: "Acceptance criteria defined"
+      passed: true
+      details: "3 acceptance criteria present"
+-->
+
+| Condition | Passed | Details |
+|-----------|--------|---------|
+| Acceptance criteria defined | - | ${DOR_AC_DETAILS} |
+| Blocking dependencies complete | - | ${DOR_DEPS_DETAILS} |
+| Required decisions made | - | ${DOR_DECISIONS_DETAILS} |
+| Assignee has required role | - | ${DOR_ROLE_DETAILS} |
+
+**DoR Status**: ${DOR_PASSED}  
+**Last Checked**: ${DOR_CHECKED_AT}
+
+## Blocked Status
+
+<!--
+blocked_status:
+  blocked: false
+  reason: null
+  blocker_refs: []
+  blocked_since: null
+  blocked_phase: null
+-->
+
+| Field | Value |
+|-------|-------|
+| Blocked | false |
+| Reason | - |
+| Blocker Refs | - |
+| Blocked Since | - |
+| Blocked Phase | - |
+
+## Blocking Finding IDs
+
+<!--
+List of finding IDs (FND-xxx) that are blocking this task from completion.
+These must be resolved before the task can transition to DONE.
+-->
+
+blocking_finding_ids: []
+
 ## Acceptance Criteria
 
 - ${AC_REF_1}
@@ -39,11 +127,33 @@ depends_on:
   - task_id: ""           # Task ID this task depends on (e.g., "TASK-001")
     type: ""              # blocking | non_blocking
     reason: ""            # Reason for the dependency
+    satisfied: false      # Whether dependency is satisfied
+    satisfied_at: null    # ISO 8601 timestamp when satisfied
 -->
 
-| Task ID | Type | Reason |
-|---------|------|--------|
-| ${DEPENDS_ON_TASK_ID} | ${DEPENDS_ON_TYPE} | ${DEPENDS_ON_REASON} |
+| Task ID | Type | Reason | Satisfied |
+|---------|------|--------|-----------|
+| ${DEPENDS_ON_TASK_ID} | ${DEPENDS_ON_TYPE} | ${DEPENDS_ON_REASON} | - |
+
+## Isolation
+
+<!--
+isolation:
+  working_branch: ""       # Branch name for this task's work
+  base_branch: "main"      # Branch this work is based on
+  base_commit: ""          # Commit SHA of base
+  potential_conflicts: []  # List of potential conflict zones
+-->
+
+| Field | Value |
+|-------|-------|
+| Working Branch | ${WORKING_BRANCH} |
+| Base Branch | main |
+| Base Commit | ${BASE_COMMIT} |
+
+### Potential Conflicts
+
+- ${POTENTIAL_CONFLICT_1}
 
 ## Expected Files/Components
 
@@ -71,12 +181,41 @@ ${IMPL_NOTES}
 
 ## TDD Status
 
+<!--
+tdd_status:
+  applicable: true
+  exemption_reason: null
+  verification_method: "automated_tests"  # or "manual_review", "static_check"
+  phase: RED | GREEN | REFACTOR | VERIFY | COMPLETE | NOT_APPLICABLE
+  phases:
+    RED:
+      status: NOT_STARTED | IN_PROGRESS | COMPLETE | FAILED
+      evidence_id: null | "EVD-xxx"
+      completed_at: null | ISO 8601 timestamp
+    GREEN:
+      status: NOT_STARTED | IN_PROGRESS | COMPLETE | FAILED
+      evidence_id: null
+      started_at: null
+    REFACTOR:
+      status: NOT_STARTED | IN_PROGRESS | COMPLETE
+    VERIFY:
+      status: NOT_STARTED | IN_PROGRESS | COMPLETE | FAILED
+-->
+
 | Phase | Status | Evidence | Timestamp |
 |-------|--------|----------|-----------|
 | RED | NOT_STARTED | - | - |
 | GREEN | NOT_STARTED | - | - |
 | REFACTOR | NOT_STARTED | - | - |
 | VERIFY | NOT_STARTED | - | - |
+
+### TDD Applicability
+
+| Field | Value |
+|-------|-------|
+| Applicable | true |
+| Exemption Reason | - |
+| Verification Method | automated_tests |
 
 ## Definition of Done
 

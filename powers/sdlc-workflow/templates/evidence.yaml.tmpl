@@ -1,0 +1,97 @@
+# evidence.yaml Template
+# Evidence record for verification tracking (R05, R06)
+# File: .kiro/sdlc/evidence/EVD-${TASK_ID}-${PHASE}.yaml
+
+evidence_id: "EVD-${TASK_ID}-${PHASE}"
+created_at: "${CREATED_AT}"
+
+# What was verified
+task_id: "${TASK_ID}"
+tdd_phase: ${TDD_PHASE}                # RED | GREEN | REFACTOR | VERIFY | null
+requirement_refs: []                   # List of requirement IDs covered
+# Example:
+# - "REQ-001"
+# - "REQ-002"
+ac_refs: []                            # List of acceptance criteria IDs covered
+# Example:
+# - "REQ-001-AC1"
+# - "REQ-001-AC2"
+
+# Git state at verification time
+git_state:
+  commit_sha: "${COMMIT_SHA}"          # Commit being verified
+  branch: "${BRANCH_NAME}"             # Working branch
+  working_tree_dirty: ${WORKING_TREE_DIRTY}  # true | false
+  uncommitted_files: []                # List of uncommitted file paths
+
+# Execution details
+execution:
+  command: "${COMMAND}"                # Command that was executed
+  working_directory: "${WORKING_DIR}"  # Directory where command ran
+  config:
+    test_framework: "${TEST_FRAMEWORK}" # vitest | jest | mocha | pytest | etc.
+    config_file: ${CONFIG_FILE}        # Test config file path (null if none)
+  environment:
+    node_version: ${NODE_VERSION}      # Node.js version (null if not applicable)
+    os: "${OS}"                        # Operating system
+  timestamp: "${EXECUTION_TIMESTAMP}"  # ISO 8601 execution time
+  duration_ms: ${DURATION_MS}          # Execution duration in milliseconds
+  exit_code: ${EXIT_CODE}              # Process exit code
+
+# Result
+result:
+  status: ${RESULT_STATUS}             # PASS | FAIL | BLOCKED | NOT_RUN | NOT_APPLICABLE
+  summary: "${RESULT_SUMMARY}"         # Brief result description
+  test_file: ${TEST_FILE}              # Test file path (null if not applicable)
+  test_name: ${TEST_NAME}              # Specific test name (null if not applicable)
+  failure_type: ${FAILURE_TYPE}        # BEHAVIOR_MISSING | TEST_ERROR | ENVIRONMENT_ERROR | SKIPPED | null
+  log_path: ${LOG_PATH}                # Path to detailed log file
+
+# Executor info
+executor:
+  id: "${EXECUTOR_ID}"                 # Developer or agent ID
+  type: ${EXECUTOR_TYPE}               # HUMAN | AI_AGENT
+
+# Staleness tracking (R06)
+staleness:
+  stale: false                         # Whether evidence is stale
+  stale_reason: null                   # Reason for staleness
+  stale_since: null                    # When evidence became stale
+  checked_at: "${CREATED_AT}"          # Last staleness check timestamp
+  related_files: []                    # Files whose changes affect staleness
+  # Example related file:
+  # - path: "src/auth.ts"
+  #   hash_at_verification: "sha256:abc..."
+  # - path: "src/auth.test.ts"
+  #   hash_at_verification: "sha256:def..."
+
+# Revalidation tracking
+revalidation:
+  requires_revalidation: false         # Whether evidence needs re-verification
+  revalidation_reason: null            # Why revalidation is needed
+  superseded_by: null                  # New evidence ID if superseded
+
+# VALIDATION RULES:
+# - evidence_id must be unique and follow format: EVD-TASK-xxx-PHASE
+# - created_at must be valid ISO 8601 timestamp
+# - task_id must reference existing task
+# - tdd_phase must be: RED | GREEN | REFACTOR | VERIFY | null
+# - requirement_refs must reference existing REQ-xxx IDs
+# - ac_refs must reference existing acceptance criteria IDs
+# - git_state.commit_sha must be valid git SHA
+# - git_state.working_tree_dirty must be boolean
+# - execution.command must be non-empty string
+# - execution.exit_code must be integer
+# - execution.duration_ms must be non-negative integer
+# - result.status must be: PASS | FAIL | BLOCKED | NOT_RUN | NOT_APPLICABLE
+# - result.failure_type if set must be: BEHAVIOR_MISSING | TEST_ERROR | ENVIRONMENT_ERROR | SKIPPED
+# - executor.type must be: HUMAN | AI_AGENT
+# - staleness.stale must be boolean
+# - If staleness.stale is true, stale_reason and stale_since are required
+# - staleness.related_files[].hash_at_verification must be valid hash string
+#
+# TDD PHASE EVIDENCE RULES (R05):
+# - RED phase: Test must FAIL with BEHAVIOR_MISSING, result.status = PASS (RED passed)
+# - GREEN phase: Test must PASS, all tests pass, no regression
+# - REFACTOR phase: All tests must still PASS after refactor
+# - VERIFY phase: All quality gates must pass

@@ -1,0 +1,161 @@
+# release.yaml Template
+# Release lifecycle tracking (R15)
+# File: .kiro/sdlc/releases/REL-${VERSION}.yaml
+
+release_id: "REL-${VERSION}"
+version: "${VERSION}"
+created_at: "${CREATED_AT}"
+created_by: "${CREATED_BY}"
+
+# Release metadata
+metadata:
+  name: "${RELEASE_NAME}"              # Human-readable release name
+  description: "${DESCRIPTION}"        # Release description/summary
+  milestone: ${MILESTONE_ID}           # Associated milestone (null if none)
+  target_date: ${TARGET_DATE}          # Planned release date
+  actual_date: ${ACTUAL_DATE}          # Actual release date (null until released)
+
+# Release status tracking
+status: ${STATUS}                      # NOT_STARTED | PLANNING | READINESS_CHECK | READINESS_FAILED | STAGING | STAGING_FAILED | AWAITING_APPROVAL | PRODUCTION | PRODUCTION_FAILED | MONITORING | ROLLED_BACK | CLOSED | CANCELLED
+current_stage: ${CURRENT_STAGE}        # readiness_check | staging | production | monitoring | null
+
+# Release stages with detailed tracking
+stages:
+  # Planning stage
+  planning:
+    status: ${PLANNING_STATUS}         # NOT_STARTED | IN_PROGRESS | COMPLETE
+    started_at: ${PLANNING_STARTED}
+    completed_at: ${PLANNING_COMPLETED}
+    tasks_included: []                 # Task IDs included in this release
+    requirements_included: []          # Requirement IDs included
+
+  # Readiness check stage
+  readiness_check:
+    status: ${READINESS_STATUS}        # NOT_STARTED | IN_PROGRESS | PASSED | FAILED
+    started_at: ${READINESS_STARTED}
+    completed_at: ${READINESS_COMPLETED}
+    evidence_id: ${READINESS_EVIDENCE} # Evidence ID for readiness check
+    report:
+      tasks_total: ${TASKS_TOTAL}
+      tasks_done: ${TASKS_DONE}
+      tasks_blocked: ${TASKS_BLOCKED}
+      evidence_total: ${EVIDENCE_TOTAL}
+      evidence_valid: ${EVIDENCE_VALID}
+      evidence_stale: ${EVIDENCE_STALE}
+      findings_critical: ${FINDINGS_CRITICAL}
+      findings_high: ${FINDINGS_HIGH}
+      findings_open: ${FINDINGS_OPEN}
+      gates_passed: []                 # List of passed gate names
+      gates_failed: []                 # List of failed gate names
+    blockers: []                       # List of blocker descriptions
+
+  # Staging deployment stage
+  staging:
+    status: ${STAGING_STATUS}          # NOT_STARTED | DEPLOYING | DEPLOYED | VERIFYING | VERIFIED | FAILED
+    deployed_at: ${STAGING_DEPLOYED}
+    deployment_evidence_id: ${STAGING_DEPLOY_EVIDENCE}
+    verified_at: ${STAGING_VERIFIED}
+    verification_evidence_id: ${STAGING_VERIFY_EVIDENCE}
+    environment:
+      url: ${STAGING_URL}              # Staging environment URL
+      version_deployed: ${STAGING_VERSION}
+    failure_reason: ${STAGING_FAILURE_REASON}
+
+  # Production approval stage
+  approval:
+    status: ${APPROVAL_STATUS}         # NOT_STARTED | PENDING | APPROVED | DENIED
+    requested_at: ${APPROVAL_REQUESTED}
+    requested_by: ${APPROVAL_REQUESTOR}
+    approved_by: ${APPROVED_BY}        # null if not approved or denied
+    approved_at: ${APPROVED_AT}
+    denied_by: ${DENIED_BY}            # null if not denied
+    denied_at: ${DENIED_AT}
+    denial_reason: ${DENIAL_REASON}
+    notes: ${APPROVAL_NOTES}
+
+  # Production deployment stage
+  production:
+    status: ${PRODUCTION_STATUS}       # NOT_STARTED | DEPLOYING | DEPLOYED | VERIFYING | VERIFIED | FAILED
+    deployed_at: ${PRODUCTION_DEPLOYED}
+    deployment_evidence_id: ${PRODUCTION_DEPLOY_EVIDENCE}
+    verified_at: ${PRODUCTION_VERIFIED}
+    verification_evidence_id: ${PRODUCTION_VERIFY_EVIDENCE}
+    environment:
+      url: ${PRODUCTION_URL}
+      version_deployed: ${PRODUCTION_VERSION}
+    failure_reason: ${PRODUCTION_FAILURE_REASON}
+
+  # Monitoring stage (post-deployment observation)
+  monitoring:
+    status: ${MONITORING_STATUS}       # NOT_STARTED | IN_PROGRESS | COMPLETE | ISSUE_DETECTED
+    started_at: ${MONITORING_STARTED}
+    completed_at: ${MONITORING_COMPLETED}
+    observation_period_hours: ${OBSERVATION_HOURS}  # Configured observation period
+    issues_detected: []
+    # Example issue:
+    # - detected_at: "2024-01-20T14:00:00Z"
+    #   description: "Elevated error rate in auth service"
+    #   severity: HIGH
+    #   resolution: "Rolled back at 14:30"
+
+# Rollback information
+rollback:
+  available: ${ROLLBACK_AVAILABLE}     # true | false
+  previous_version: ${PREVIOUS_VERSION}
+  rollback_executed: ${ROLLBACK_EXECUTED}  # true | false
+  rollback_at: ${ROLLBACK_AT}
+  rollback_by: ${ROLLBACK_BY}
+  rollback_reason: ${ROLLBACK_REASON}
+  rollback_evidence_id: ${ROLLBACK_EVIDENCE}
+
+# Release history
+history: []
+# Example history entry:
+# - action: "created"
+#   timestamp: "2024-01-15T10:00:00Z"
+#   by: "lead-001"
+#   details: "Release v1.2.0 created"
+# - action: "stage_transition"
+#   timestamp: "2024-01-16T10:00:00Z"
+#   by: "system"
+#   details:
+#     from: "readiness_check"
+#     to: "staging"
+#     reason: "All gates passed"
+
+# Closure information
+closure:
+  closed_at: ${CLOSED_AT}
+  closed_by: ${CLOSED_BY}
+  closure_reason: ${CLOSURE_REASON}    # completed | cancelled | superseded
+  superseded_by: ${SUPERSEDED_BY}      # Release ID if superseded
+
+# VALIDATION RULES:
+# - release_id must be unique and follow format: REL-{version}
+# - version must follow semantic versioning (x.y.z)
+# - created_at must be valid ISO 8601 timestamp
+# - status must be one of the defined statuses
+# - current_stage if set must be one of: readiness_check | staging | production | monitoring
+# - Stage progression must follow: planning → readiness_check → staging → approval → production → monitoring → closed
+# - stages.readiness_check.status cannot be PASSED if any gates_failed
+# - stages.approval.status cannot be APPROVED without approved_by and approved_at
+# - stages.production.status cannot be DEPLOYED without approval.status == APPROVED
+# - rollback.available can only be true if previous_version is set
+# - If rollback.rollback_executed is true, rollback_at and rollback_by are required
+# - history[].action must be valid action type
+# - If closure.closure_reason is "superseded", superseded_by must reference existing release
+#
+# STATUS DEFINITIONS (R15):
+# - NOT_STARTED: Release created but no action taken
+# - PLANNING: Identifying tasks and requirements for release
+# - READINESS_CHECK: Validating all gates pass
+# - READINESS_FAILED: One or more gates failed, needs fixing
+# - STAGING: Deploying and testing in staging environment
+# - STAGING_FAILED: Staging deployment or verification failed
+# - AWAITING_APPROVAL: Staging verified, waiting for production approval
+# - PRODUCTION: Deploying to production
+# - PRODUCTION_FAILED: Production deployment failed
+# - MONITORING: Post-deployment observation period
+# - ROLLED_BACK: Release was rolled back
+# - CLOSED: Release completed successfully
+# - CANCELLED: Release was cancelled

@@ -1,0 +1,93 @@
+# audit-entry.yaml Template
+# Audit log entry for operation tracking (R16)
+# Note: Actual audit logs are stored as JSONL in .kiro/sdlc/audit.log
+# This template documents the audit entry schema
+
+# Each line in audit.log follows this JSON structure:
+# {
+#   "operation_id": "op-{uuid}",
+#   "correlation_id": "{corr-uuid}",          # Optional: links related operations
+#   "timestamp": "ISO 8601 timestamp",
+#   "actor_id": "{actor-id}",
+#   "actor_type": "HUMAN | AI_AGENT | SYSTEM",
+#   "action": "{action-type}",
+#   "resource_type": "{resource-type}",
+#   "resource_id": "{resource-id}",
+#   "state_version_before": {number},         # Optional: state version before change
+#   "state_version_after": {number},          # Optional: state version after change
+#   "changes": {                              # Optional: detailed changes made
+#     "field_name": { "from": "old_value", "to": "new_value" }
+#   },
+#   "reason": "reason for the action",        # Optional: human-readable reason
+#   "outcome": "SUCCESS | FAILURE",
+#   "error_details": "{error message}"        # Only if outcome is FAILURE
+# }
+
+# Example JSONL entries (one per line in audit.log):
+
+# Task status change
+# {"operation_id":"op-550e8400-e29b-41d4-a716-446655440000","timestamp":"2024-01-15T10:00:00.000Z","actor_id":"dev-001","actor_type":"HUMAN","action":"TASK_STATUS_CHANGE","resource_type":"Task","resource_id":"TASK-003","state_version_before":41,"state_version_after":42,"changes":{"status":{"from":"ASSIGNED","to":"IN_PROGRESS"},"tdd.phase":{"from":null,"to":"PENDING"}},"reason":"Developer started work on task","outcome":"SUCCESS"}
+
+# Task ownership claimed
+# {"operation_id":"op-660e9500-f39c-52e5-b827-557766551111","timestamp":"2024-01-15T10:05:00.000Z","actor_id":"dev-001","actor_type":"HUMAN","action":"OWNERSHIP_CLAIMED","resource_type":"Task","resource_id":"TASK-003","state_version_before":42,"state_version_after":43,"changes":{"ownership.fencing_token":{"from":null,"to":"uuid-token"},"ownership.owner_id":{"from":null,"to":"dev-001"}},"outcome":"SUCCESS"}
+
+# Evidence created
+# {"operation_id":"op-770f0600-g40d-63f6-c938-668877662222","timestamp":"2024-01-15T10:30:00.000Z","actor_id":"dev-001","actor_type":"HUMAN","action":"EVIDENCE_CREATED","resource_type":"Evidence","resource_id":"EVD-TASK-003-RED","changes":{"tdd_phase":"RED","result":"PASS"},"reason":"RED phase test failure recorded","outcome":"SUCCESS"}
+
+# Lease expired (system action)
+# {"operation_id":"op-880g1700-h51e-74g7-d049-779988773333","timestamp":"2024-01-15T14:00:00.000Z","actor_id":"SYSTEM","actor_type":"SYSTEM","action":"LEASE_EXPIRED","resource_type":"Task","resource_id":"TASK-004","changes":{"ownership.status":{"from":"ACTIVE","to":"ABANDONED"}},"reason":"No heartbeat for 600 seconds","outcome":"SUCCESS"}
+
+# Version conflict (failure example)
+# {"operation_id":"op-990h2800-i62f-85h8-e150-880099884444","timestamp":"2024-01-15T11:00:00.000Z","actor_id":"dev-002","actor_type":"HUMAN","action":"STATE_UPDATE","resource_type":"ProjectState","resource_id":"project-state","state_version_before":43,"changes":{},"reason":"Attempted to update task status","outcome":"FAILURE","error_details":"StateVersionConflictError: Expected version 43, but current version is 44"}
+
+# SUPPORTED ACTION TYPES:
+# - STATE_UPDATE: General state modification
+# - TASK_STATUS_CHANGE: Task status transition
+# - TASK_CREATED: New task created
+# - TASK_ASSIGNED: Task assigned to developer
+# - TASK_UNASSIGNED: Task unassigned
+# - OWNERSHIP_CLAIMED: Task ownership claimed
+# - OWNERSHIP_RELEASED: Task ownership released
+# - OWNERSHIP_TRANSFERRED: Task ownership transferred (handoff)
+# - LEASE_EXPIRED: AI agent lease expired
+# - HEARTBEAT_RECORDED: AI agent heartbeat received
+# - CHECKPOINT_CREATED: Checkpoint created
+# - CHECKPOINT_RESTORED: Checkpoint restored
+# - EVIDENCE_CREATED: Evidence record created
+# - EVIDENCE_MARKED_STALE: Evidence marked as stale
+# - FINDING_CREATED: Review finding created
+# - FINDING_RESOLVED: Review finding resolved
+# - FINDING_REOPENED: Review finding reopened
+# - HANDOFF_INITIATED: Handoff started
+# - HANDOFF_ACCEPTED: Handoff accepted by target
+# - HANDOFF_REJECTED: Handoff rejected by target
+# - HANDOFF_COMPLETED: Handoff completed
+# - RELEASE_CREATED: Release created
+# - RELEASE_STAGE_TRANSITION: Release moved to new stage
+# - RELEASE_APPROVED: Release approved for production
+# - RELEASE_DEPLOYED: Release deployed to environment
+# - RELEASE_ROLLED_BACK: Release rolled back
+# - RELEASE_CLOSED: Release closed
+
+# SUPPORTED RESOURCE TYPES:
+# - ProjectState: Main project state file
+# - Task: Individual task
+# - Evidence: Evidence record
+# - Finding: Review finding
+# - Checkpoint: Checkpoint record
+# - Handoff: Handoff record
+# - Release: Release record
+# - Team: Team configuration
+# - Config: Configuration files
+
+# VALIDATION RULES:
+# - operation_id must be unique UUID with "op-" prefix
+# - timestamp must be valid ISO 8601 with milliseconds
+# - actor_id required (use "SYSTEM" for automated actions)
+# - actor_type must be: HUMAN | AI_AGENT | SYSTEM
+# - action must be one of the supported action types
+# - resource_type must be one of the supported resource types
+# - resource_id must reference existing resource
+# - outcome must be: SUCCESS | FAILURE
+# - If outcome is FAILURE, error_details is required
+# - state_version_before/after required for state-modifying operations

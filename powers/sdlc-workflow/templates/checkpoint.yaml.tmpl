@@ -1,0 +1,77 @@
+# checkpoint.yaml Template
+# Checkpoint for crash recovery and resume (R09)
+# File: .kiro/sdlc/checkpoints/CP-${CHECKPOINT_DATE}-${CHECKPOINT_SEQ}.yaml
+
+checkpoint_id: "CP-${CHECKPOINT_DATE}-${CHECKPOINT_SEQ}"
+created_at: "${CREATED_AT}"
+created_by: "${CREATED_BY}"
+trigger: "${TRIGGER}"                  # state_transition | tdd_phase_transition | evidence_created | handoff | manual | periodic
+note: ${NOTE}                          # Optional user note (null if not provided)
+
+# Snapshot data
+snapshot:
+  # State version at checkpoint time
+  state_version: ${STATE_VERSION}
+  
+  # Task context
+  task_id: ${TASK_ID}                  # Current task (null if none)
+  task_status: ${TASK_STATUS}          # Task status at checkpoint
+  
+  # Ownership context
+  owner_id: ${OWNER_ID}
+  fencing_token: ${FENCING_TOKEN}
+  actor_type: ${ACTOR_TYPE}            # HUMAN | AI_AGENT
+  
+  # TDD context
+  tdd_phase: ${TDD_PHASE}              # RED | GREEN | REFACTOR | VERIFY | null
+  
+  # Git state
+  branch_name: ${BRANCH_NAME}          # Working branch
+  commit_sha: ${COMMIT_SHA}            # Last known commit
+  uncommitted_changes: []              # List of modified files not committed
+  # Example uncommitted change:
+  # - path: "src/auth.ts"
+  #   type: "modified"                 # modified | added | deleted
+  # - path: "src/auth.test.ts"
+  #   type: "modified"
+  
+  # Evidence collected for this task
+  evidence_refs: []
+  # Example evidence reference:
+  # - "EVD-TASK-003-RED"
+  # - "EVD-TASK-003-GREEN"
+  
+  # Active blockers
+  blockers: []
+  # Example blocker reference:
+  # - "BLOCKER-001"
+  
+  # Blocking findings
+  blocking_finding_ids: []
+  # Example finding reference:
+  # - "FND-001"
+  
+  # Recommended next action for resume
+  next_action: "${NEXT_ACTION}"
+
+# Validation info
+validation:
+  valid_at_creation: true
+  repository_hash: "${REPO_HASH}"      # Hash of key repo state for integrity check
+
+# VALIDATION RULES:
+# - checkpoint_id must be unique and follow format: CP-YYYY-MM-DD-NNN
+# - created_at must be valid ISO 8601 timestamp
+# - created_by must be valid actor ID
+# - trigger must be one of: state_transition | tdd_phase_transition | evidence_created | handoff | manual | periodic
+# - snapshot.state_version must be positive integer
+# - snapshot.task_id if set must reference existing task
+# - snapshot.owner_id must be valid team member or agent ID
+# - snapshot.fencing_token must be valid UUID if task is owned
+# - snapshot.actor_type must be: HUMAN | AI_AGENT
+# - snapshot.tdd_phase must be: RED | GREEN | REFACTOR | VERIFY | null
+# - snapshot.commit_sha if set must be valid git SHA
+# - snapshot.uncommitted_changes[].type must be: modified | added | deleted
+# - snapshot.evidence_refs must reference existing EVD-xxx IDs
+# - snapshot.blockers must reference existing BLOCKER-xxx IDs
+# - validation.valid_at_creation must be boolean
