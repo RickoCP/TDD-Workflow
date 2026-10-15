@@ -443,7 +443,37 @@ quality_gates:
 
 ## Installation
 
-### 1. Copy Power
+> **Quick Start**: See [QUICK-START.md](./QUICK-START.md) for detailed step-by-step instructions with platform-specific commands.
+
+### Quick Setup (Recommended)
+
+Run the automated setup script from your project root:
+
+```bash
+node path/to/powers/sdlc-workflow/scripts/sdlc-setup.js
+```
+
+This automatically creates directories, copies guard script, and sets up hooks.
+
+### Manual Setup
+
+1. **Copy Power**: Copy `powers/sdlc-workflow` to `~/.kiro/powers/`
+2. **Copy Guard Script**: Copy `scripts/sdlc-guard.js` to your project's `scripts/` folder  
+3. **Create Hook**: Create `.kiro/hooks/sdlc-guard.json` with the guard hook configuration
+
+See [QUICK-START.md](./QUICK-START.md) for full platform-specific commands.
+
+### Initialize Workflow
+
+Say: **"start SDLC project"**
+
+### Prerequisites
+
+- Node.js v14+ (for guard script)
+- Git (recommended)
+- Kiro IDE
+
+## Best Practices
 
 `ash
 cp -r powers/sdlc-workflow ~/.kiro/powers/
@@ -453,30 +483,6 @@ cp -r powers/sdlc-workflow ~/.kiro/powers/
 
 Copy to project:
 `ash
-mkdir -p scripts
-cp powers/sdlc-workflow/scripts/sdlc-guard.js scripts/
-`
-
-Add hook:
-`json
-{
-  "version": "v1",
-  "hooks": [{
-    "name": "SDLC Phase Guard",
-    "trigger": "PreToolUse",
-    "matcher": "fs_write|str_replace|edit_file",
-    "action": {
-      "type": "command",
-      "command": "node scripts/sdlc-guard.js"
-    }
-  }]
-}
-`
-
-### 3. Initialize Project
-
-Say: **"start SDLC project"**
-
 ## Best Practices
 
 1. **Commit state files with code**

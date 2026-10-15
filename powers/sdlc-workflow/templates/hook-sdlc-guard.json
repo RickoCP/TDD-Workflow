@@ -1,13 +1,15 @@
 {
   "version": "v1",
+  "description": "SDLC Workflow guard hook - enforces TDD and phase restrictions",
+  "setup_instructions": "Run 'node path/to/sdlc-setup.cjs' or copy this to .kiro/hooks/sdlc-guard.json after ensuring scripts/sdlc-guard.cjs exists",
   "hooks": [
     {
       "name": "SDLC Phase Guard",
       "trigger": "PreToolUse",
-      "matcher": "fs_write|str_replace|edit_file",
+      "matcher": "fs_write|str_replace|edit_file|fs_append",
       "action": {
         "type": "command",
-        "command": "node scripts/sdlc-guard.js"
+        "command": "node scripts/sdlc-guard.cjs"
       }
     }
   ]
